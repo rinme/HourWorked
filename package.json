@@ -4,8 +4,10 @@
 	"private": true,
 	"type": "module",
 	"imports": {
-		"#lib": "./src/lib/index.js",
-		"#lib/*": "./src/lib/*"
+		"#lib": "./src/lib/index.ts",
+		"#lib/*": "./src/lib/*",
+		"$lib": "./src/lib/index.ts",
+		"$lib/*": "./src/lib/*"
 	},
 	"scripts": {
 		"dev": "vite dev",
@@ -13,7 +15,8 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "bun run scripts/verify-edge-cases.ts"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-vercel": "^7.0.0",
