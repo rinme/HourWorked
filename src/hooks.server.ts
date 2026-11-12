@@ -1,4 +1,5 @@
-import type { Handle } from '@sveltejs/kit';
+import type { Handle } from '@sveltejs/kit/hooks';
+import { getSessionUser } from '$lib/server/auth';
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const host = event.request.headers.get('host') || event.url.host;
@@ -10,6 +11,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 		targetUrl.port = '';
 		return Response.redirect(targetUrl.toString(), 308);
 	}
+
+	event.locals.user = await getSessionUser(event.cookies, event.request.headers);
 
 	return resolve(event);
 };

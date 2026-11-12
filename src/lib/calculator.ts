@@ -5,7 +5,9 @@ import type {
 	RoundingMode,
 	SessionCalculation,
 	PeriodSummary,
-	DayGroup
+	DayGroup,
+	SafeguardStatus,
+	TimedShiftProgress
 } from './types';
 
 /**
@@ -508,9 +510,10 @@ const THAI_DAYS = ['อาทิตย์', 'จันทร์', 'อังค�
  */
 export function formatThaiDate(
 	dateInput: string | number | Date,
-	options: { showDayOfWeek?: boolean; showYear?: boolean } = {
+	options: { showDayOfWeek?: boolean; showYear?: boolean; showTime?: boolean } = {
 		showDayOfWeek: true,
-		showYear: true
+		showYear: true,
+		showTime: false
 	}
 ): string {
 	let d: Date;
@@ -534,6 +537,11 @@ export function formatThaiDate(
 	if (options.showYear) {
 		parts.push(`${year}`);
 	}
+	if (options.showTime) {
+		const hh = String(d.getHours()).padStart(2, '0');
+		const mm = String(d.getMinutes()).padStart(2, '0');
+		parts.push(`${hh}:${mm} น.`);
+	}
 
 	return parts.join(' ');
 }
@@ -555,4 +563,205 @@ export function getLocalDateString(date: Date = new Date()): string {
 	const d = String(date.getDate()).padStart(2, '0');
 	return `${y}-${m}-${d}`;
 }
+
+// ============================================================================
+// Safeguard Logic
+// ============================================================================
+
+/**
+ * Calculates safeguard status for a work session (active or completed).
+ * Determines if session exceeds maximum allowed continuous hours (default 12 hours).
+ */
+export function calculateSafeguardStatus(
+	session: WorkSession,
+	maxHours: number = 12,
+	referenceTime: number = Date.now()
+): SafeguardStatus {
+	const end = session.endTime !== null ? session.endTime : referenceTime;
+	const elapsedMs = Math.max(0, end - session.startTime);
+	const elapsedHours = elapsedMs / (3600 * 1000);
+	const maxHoursMs = maxHours * 3600 * 1000;
+	const isExceeded = elapsedHours >= maxHours;
+	const excessMs = isExceeded ? elapsedMs - maxHoursMs : 0;
+	const excessHours = excessMs / (3600 * 1000);
+
+	const snoozedUntil = session.safeguardSnoozedUntil ?? null;
+	const isSnoozed = snoozedUntil !== null && referenceTime < snoozedUntil;
+	const suggestedCheckoutTime = session.startTime + maxHoursMs;
+
+	return {
+		isExceeded,
+		elapsedMs,
+		elapsedHours,
+		maxHours,
+		excessMs,
+		excessHours,
+		isSnoozed,
+		snoozedUntil,
+		suggestedCheckoutTime
+	};
+}
+
+/**
+ * Checks if a session currently exceeds safeguard threshold and is NOT snoozed.
+ * When true, a prominent checkout warning or notification should be displayed.
+ */
+export function isSessionExceedingSafeguard(
+	session: WorkSession,
+	maxHours: number = 12,
+	referenceTime: number = Date.now()
+): boolean {
+	const status = calculateSafeguardStatus(session, maxHours, referenceTime);
+	return status.isExceeded && !status.isSnoozed;
+}
+
+// ============================================================================
+// Timed Mode (Scheduled Shift) Logic
+// ============================================================================
+
+/**
+ * Parses time string (HH:mm) into a Date on a given target date.
+ */
+export function parseTimeOnDate(timeStr: string, baseDate: Date = new Date()): Date {
+	const d = new Date(baseDate);
+	if (!timeStr || !/^\d{1,2}:\d{2}$/.test(timeStr)) {
+		d.setHours(0, 0, 0, 0);
+		return d;
+	}
+	const [h, m] = timeStr.split(':').map(Number);
+	d.setHours(h, m, 0, 0);
+	return d;
+}
+
+/**
+ * Calculates scheduled shift start and end timestamps in milliseconds,
+ * automatically handling cross-midnight overnight shifts (e.g. 22:00 to 06:00).
+ */
+export function calculateTimedShiftTimes(
+	scheduledStart: string = '14:00',
+	scheduledEnd: string = '22:00',
+	referenceDate: Date = new Date()
+): { startTimeMs: number; endTimeMs: number; crossesMidnight: boolean } {
+	const start = parseTimeOnDate(scheduledStart, referenceDate);
+	const end = parseTimeOnDate(scheduledEnd, referenceDate);
+
+	if (end.getTime() <= start.getTime()) {
+		// Overnight shift crossing midnight
+		const refTime = referenceDate.getTime();
+		// The off-work interval between end today (e.g. 06:00) and start today (e.g. 22:00).
+		// Midpoint determines whether the reference time associates with the shift concluding this morning
+		// or the shift beginning this evening.
+		const midOffworkTime = (end.getTime() + start.getTime()) / 2;
+		if (refTime < midOffworkTime) {
+			start.setDate(start.getDate() - 1);
+		} else {
+			end.setDate(end.getDate() + 1);
+		}
+		return {
+			startTimeMs: start.getTime(),
+			endTimeMs: end.getTime(),
+			crossesMidnight: true
+		};
+	}
+
+	return {
+		startTimeMs: start.getTime(),
+		endTimeMs: end.getTime(),
+		crossesMidnight: false
+	};
+}
+
+/**
+ * Calculates live progress, countdown, and expected earnings for scheduled timed shift mode.
+ */
+export function calculateTimedModeProgress(
+	config: UserConfig,
+	referenceTime: number = Date.now(),
+	activeSession: WorkSession | null = null
+): TimedShiftProgress {
+	const refDate = new Date(referenceTime);
+	const { startTimeMs, endTimeMs } = calculateTimedShiftTimes(
+		config.scheduledStart || '14:00',
+		config.scheduledEnd || '22:00',
+		refDate
+	);
+
+	const durationMs = Math.max(0, endTimeMs - startTimeMs);
+	const isBeforeShift = referenceTime < startTimeMs;
+	const isShiftComplete = referenceTime >= endTimeMs;
+	const isShiftActive = activeSession !== null || (!isBeforeShift && !isShiftComplete);
+
+	let elapsedMs = 0;
+	let remainingMs = 0;
+
+	if (isBeforeShift) {
+		elapsedMs = 0;
+		remainingMs = durationMs;
+	} else if (isShiftComplete) {
+		elapsedMs = durationMs;
+		remainingMs = 0;
+	} else {
+		elapsedMs = Math.max(0, referenceTime - startTimeMs);
+		remainingMs = Math.max(0, endTimeMs - referenceTime);
+	}
+
+	const percentComplete =
+		durationMs > 0 ? Math.min(100, Math.max(0, (elapsedMs / durationMs) * 100)) : 0;
+
+	// Calculate expected daily shift earnings based on scheduled duration & config
+	const virtualShiftSession: WorkSession = {
+		id: 'virtual_shift',
+		date: getLocalDateString(new Date(startTimeMs)),
+		startTime: startTimeMs,
+		endTime: endTimeMs,
+		breaks: []
+	};
+
+	const calc = calculateSessionWage(virtualShiftSession, config);
+
+	return {
+		startTimeMs,
+		endTimeMs,
+		nowMs: referenceTime,
+		durationMs,
+		elapsedMs,
+		remainingMs,
+		percentComplete: Math.round(percentComplete * 10) / 10,
+		isShiftActive,
+		isBeforeShift,
+		isShiftComplete,
+		expectedHours: calc.roundedDurationHours,
+		expectedGrossWage: calc.grossWage,
+		expectedTaxDeduction: calc.taxDeduction,
+		expectedNetWage: calc.netWage
+	};
+}
+
+/**
+ * Formats milliseconds into a readable countdown string:
+ * - "03:45:12" for precise digital counters
+ * - or "3 ชม. 45 นาที" for Thai verbal countdowns
+ */
+export function formatCountdown(
+	ms: number,
+	format: 'digital' | 'thai' = 'digital'
+): string {
+	const totalSecs = Math.max(0, Math.floor(ms / 1000));
+	const hours = Math.floor(totalSecs / 3600);
+	const minutes = Math.floor((totalSecs % 3600) / 60);
+	const seconds = totalSecs % 60;
+
+	if (format === 'thai') {
+		const parts: string[] = [];
+		if (hours > 0) parts.push(`${hours} ชม.`);
+		if (minutes > 0 || hours === 0) parts.push(`${minutes} นาที`);
+		return parts.join(' ');
+	}
+
+	const hh = String(hours).padStart(2, '0');
+	const mm = String(minutes).padStart(2, '0');
+	const ss = String(seconds).padStart(2, '0');
+	return `${hh}:${mm}:${ss}`;
+}
+
 

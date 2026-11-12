@@ -2,7 +2,14 @@ import type {
 	WorkSession,
 	UserConfig,
 	BreakPeriod,
-	ExportData
+	ExportData,
+	User,
+	SyncStatus,
+	AuthResponse,
+	SyncPayload,
+	SyncResponse,
+	SafeguardStatus,
+	TimedShiftProgress
 } from './types';
 import {
 	calculateTotalSummary,
@@ -10,24 +17,22 @@ import {
 	calculateGoalProgress,
 	groupSessionsByDate,
 	calculateSessionWage,
-	getLocalDateString
+	getLocalDateString,
+	calculateSafeguardStatus,
+	isSessionExceedingSafeguard,
+	calculateTimedModeProgress
 } from './calculator';
 
-export const DEFAULT_CONFIG: UserConfig = {
-	hourlyRate: 150,
-	weekendMultiplier: 1.5,
-	roundingMode: '15m',
-	taxDeductionPercent: 3,
-	monthlyIncomeGoal: 25000,
-	currency: '฿'
-};
+import { DEFAULT_CONFIG } from './types';
+export { DEFAULT_CONFIG };
 
 const STORAGE_KEYS = {
 	SESSIONS: 'hourworked_sessions_v1',
 	CONFIG: 'hourworked_config_v1',
-	ACTIVE: 'hourworked_active_session_v1'
+	ACTIVE: 'hourworked_active_session_v1',
+	USER: 'hourworked_user_v1',
+	LAST_SYNCED: 'hourworked_last_synced_v1'
 } as const;
-
 
 export function generateId(): string {
 	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -179,6 +184,12 @@ export class WorkStore {
 	config = $state<UserConfig>({ ...DEFAULT_CONFIG });
 	isLoaded = $state<boolean>(false);
 
+	// User Auth & Cloud Sync States
+	user = $state<User | null>(null);
+	syncStatus = $state<SyncStatus>('guest');
+	lastSyncedAt = $state<number | null>(null);
+	syncError = $state<string | null>(null);
+
 	constructor() {
 		this.init();
 	}
@@ -219,12 +230,37 @@ export class WorkStore {
 			if (storedActive) {
 				this.activeSession = JSON.parse(storedActive);
 			}
+
+			// 4. Load cached user & sync metadata
+			const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+			if (storedUser) {
+				try {
+					this.user = JSON.parse(storedUser);
+					this.syncStatus = 'idle';
+				} catch {
+					this.user = null;
+					this.syncStatus = 'guest';
+				}
+			} else {
+				this.user = null;
+				this.syncStatus = 'guest';
+			}
+
+			const storedLastSynced = localStorage.getItem(STORAGE_KEYS.LAST_SYNCED);
+			if (storedLastSynced) {
+				this.lastSyncedAt = Number(storedLastSynced) || null;
+			}
 		} catch (err) {
 			console.error('Error loading data from localStorage, falling back to defaults', err);
 			this.sessions = createSampleSessions();
 			this.config = { ...DEFAULT_CONFIG };
 		} finally {
 			this.isLoaded = true;
+		}
+
+		// Asynchronously verify authentication status with server if online
+		if (typeof window !== 'undefined' && this.user) {
+			this.fetchUserStatus().catch(() => {});
 		}
 	}
 
@@ -256,6 +292,19 @@ export class WorkStore {
 			}
 		} catch (e) {
 			console.error('Failed to save active session', e);
+		}
+	}
+
+	private saveUser() {
+		if (typeof window === 'undefined') return;
+		try {
+			if (this.user) {
+				localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(this.user));
+			} else {
+				localStorage.removeItem(STORAGE_KEYS.USER);
+			}
+		} catch (e) {
+			console.error('Failed to save user state', e);
 		}
 	}
 
@@ -419,6 +468,351 @@ export class WorkStore {
 		this.saveConfig();
 	}
 
+	// -------------------------------------------------------------
+	// Safeguard Resolution Methods
+	// -------------------------------------------------------------
+
+	/**
+	 * Resolves safeguard alert by ending session at the exact maximum continuous limit.
+	 * E.g. If clocked in at 08:00 with 12h max limit, end time is recorded at 20:00.
+	 */
+	checkoutAtSafeguardLimit(id?: string): WorkSession | null {
+		const targetSession =
+			id && this.activeSession?.id !== id
+				? this.sessions.find((s) => s.id === id)
+				: this.activeSession;
+
+		if (!targetSession) return null;
+
+		const limitMs = this.config.safeguardMaxHours * 3600 * 1000;
+		const checkoutTime = targetSession.startTime + limitMs;
+
+		if (this.activeSession && this.activeSession.id === targetSession.id) {
+			// Close any ongoing breaks at checkoutTime
+			const updatedBreaks = this.activeSession.breaks.map((b) =>
+				b.end === null ? { ...b, end: Math.max(b.start, checkoutTime) } : b
+			);
+
+			const completedSession: WorkSession = {
+				...this.activeSession,
+				breaks: updatedBreaks,
+				endTime: checkoutTime,
+				note:
+					(this.activeSession.note ? this.activeSession.note + ' ' : '') +
+					`[ตัดกะตามเกณฑ์ปลอดภัย ${this.config.safeguardMaxHours}ชม.]`
+			};
+
+			this.sessions = [completedSession, ...this.sessions].sort(
+				(a, b) => b.startTime - a.startTime
+			);
+			this.activeSession = null;
+			this.saveSessions();
+			this.saveActive();
+			return completedSession;
+		} else {
+			const index = this.sessions.findIndex((s) => s.id === targetSession.id);
+			if (index !== -1) {
+				this.sessions[index] = {
+					...this.sessions[index],
+					endTime: checkoutTime
+				};
+				this.sessions = [...this.sessions].sort((a, b) => b.startTime - a.startTime);
+				this.saveSessions();
+				return this.sessions[index];
+			}
+			return null;
+		}
+	}
+
+	/**
+	 * Sets a specific custom checkout timestamp for an active or completed session.
+	 */
+	setCustomCheckoutTime(id: string, timestamp: number): boolean {
+		if (this.activeSession && this.activeSession.id === id) {
+			const updatedBreaks = this.activeSession.breaks.map((b) =>
+				b.end === null ? { ...b, end: Math.max(b.start, timestamp) } : b
+			);
+
+			const completedSession: WorkSession = {
+				...this.activeSession,
+				breaks: updatedBreaks,
+				endTime: timestamp
+			};
+
+			this.sessions = [completedSession, ...this.sessions].sort(
+				(a, b) => b.startTime - a.startTime
+			);
+			this.activeSession = null;
+			this.saveSessions();
+			this.saveActive();
+			return true;
+		}
+
+		const index = this.sessions.findIndex((s) => s.id === id);
+		if (index !== -1) {
+			this.sessions[index] = {
+				...this.sessions[index],
+				endTime: timestamp
+			};
+			this.sessions = [...this.sessions].sort((a, b) => b.startTime - a.startTime);
+			this.saveSessions();
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Snoozes safeguard warnings for a session by a number of minutes or hours (default 60 minutes).
+	 */
+	snoozeSafeguard(idOrMinutes?: string | number, snoozeMinutes: number = 60): boolean {
+		let targetId: string | undefined;
+		let durationMinutes = snoozeMinutes;
+
+		if (typeof idOrMinutes === 'number') {
+			targetId = this.activeSession?.id;
+			durationMinutes = idOrMinutes <= 12 ? idOrMinutes * 60 : idOrMinutes;
+		} else {
+			targetId = idOrMinutes ?? this.activeSession?.id;
+		}
+
+		if (!targetId) return false;
+
+		const snoozedUntil = Date.now() + durationMinutes * 60 * 1000;
+
+		if (this.activeSession && this.activeSession.id === targetId) {
+			this.activeSession = {
+				...this.activeSession,
+				safeguardSnoozedUntil: snoozedUntil
+			};
+			this.saveActive();
+			return true;
+		}
+
+		const index = this.sessions.findIndex((s) => s.id === targetId);
+		if (index !== -1) {
+			this.sessions[index] = {
+				...this.sessions[index],
+				safeguardSnoozedUntil: snoozedUntil
+			};
+			this.saveSessions();
+			return true;
+		}
+
+		return false;
+	}
+
+	// -------------------------------------------------------------
+	// Timed Mode (Scheduled Shift) Methods
+	// -------------------------------------------------------------
+
+	/**
+	 * Starts a scheduled shift session.
+	 */
+	startScheduledShift(note?: string): WorkSession {
+		if (this.activeSession) {
+			return this.activeSession;
+		}
+
+		const now = Date.now();
+		const defaultNote = `กะงานตามเวลา (${this.config.scheduledStart} - ${this.config.scheduledEnd})`;
+		const newSession: WorkSession = {
+			id: generateId(),
+			date: getLocalDateString(new Date(now)),
+			startTime: now,
+			endTime: null,
+			breaks: [],
+			note: note !== undefined ? note.trim() : defaultNote,
+			isScheduledShift: true
+		};
+
+		this.activeSession = newSession;
+		this.saveActive();
+		return newSession;
+	}
+
+	/**
+	 * Completes the active scheduled shift.
+	 */
+	completeScheduledShift(note?: string): WorkSession | null {
+		return this.clockOut(note);
+	}
+
+	// -------------------------------------------------------------
+	// Cloud Sync & Auth Methods
+	// -------------------------------------------------------------
+
+	/**
+	 * Fetches user profile from server session to verify login state.
+	 */
+	async fetchUserStatus(): Promise<User | null> {
+		if (typeof window === 'undefined') return null;
+		try {
+			const res = await fetch('/api/auth/me');
+			if (res.ok) {
+				const data = await res.json();
+				if (data.user) {
+					this.user = data.user;
+					this.syncStatus = 'idle';
+					this.saveUser();
+					return data.user;
+				}
+			}
+			this.user = null;
+			this.syncStatus = 'guest';
+			this.saveUser();
+			return null;
+		} catch (err) {
+			console.warn('Failed to fetch auth status', err);
+			return null;
+		}
+	}
+
+	/**
+	 * Registers a new user account and immediately performs cloud sync.
+	 */
+	async register(username: string, password: string): Promise<AuthResponse> {
+		if (typeof window === 'undefined') return { success: false, error: 'Browser only' };
+		try {
+			const res = await fetch('/api/auth/register', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username, password })
+			});
+			const data = await res.json();
+			if (!res.ok || !data.success) {
+				return { success: false, error: data.error || 'การลงทะเบียนไม่สำเร็จ' };
+			}
+			this.user = data.user;
+			this.syncStatus = 'idle';
+			this.saveUser();
+			await this.syncWithCloud();
+			return { success: true, user: data.user, message: data.message };
+		} catch (err) {
+			return {
+				success: false,
+				error: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ'
+			};
+		}
+	}
+
+	/**
+	 * Logs into an existing account and immediately performs cloud sync.
+	 */
+	async login(username: string, password: string): Promise<AuthResponse> {
+		if (typeof window === 'undefined') return { success: false, error: 'Browser only' };
+		try {
+			const res = await fetch('/api/auth/login', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username, password })
+			});
+			const data = await res.json();
+			if (!res.ok || !data.success) {
+				return { success: false, error: data.error || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' };
+			}
+			this.user = data.user;
+			this.syncStatus = 'idle';
+			this.saveUser();
+			await this.syncWithCloud();
+			return { success: true, user: data.user };
+		} catch (err) {
+			return {
+				success: false,
+				error: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ'
+			};
+		}
+	}
+
+	/**
+	 * Logs out current user and switches back to local guest mode.
+	 */
+	async logout(): Promise<void> {
+		if (typeof window === 'undefined') return;
+		try {
+			await fetch('/api/auth/logout', { method: 'POST' });
+		} catch (e) {
+			console.warn('Logout fetch failed:', e);
+		}
+		this.user = null;
+		this.syncStatus = 'guest';
+		this.syncError = null;
+		this.saveUser();
+	}
+
+	/**
+	 * Syncs local sessions and configuration with cloud database.
+	 */
+	async syncWithCloud(): Promise<boolean> {
+		if (typeof window === 'undefined') return false;
+		if (!this.user) {
+			this.syncStatus = 'guest';
+			return false;
+		}
+
+		this.syncStatus = 'syncing';
+		this.syncError = null;
+
+		try {
+			const payload: SyncPayload = {
+				sessions: this.sessions,
+				config: this.config,
+				lastSyncedAt: this.lastSyncedAt
+			};
+
+			const res = await fetch('/api/sync', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload)
+			});
+
+			if (!res.ok) {
+				const errData = await res.json().catch(() => ({}));
+				throw new Error(errData.error || `ซิงค์ไม่สำเร็จ (${res.status})`);
+			}
+
+			const data: SyncResponse = await res.json();
+			if (data.success) {
+				if (Array.isArray(data.sessions)) {
+					const sessionMap = new Map<string, WorkSession>();
+					for (const s of data.sessions) {
+						sessionMap.set(s.id, s);
+					}
+					for (const s of this.sessions) {
+						if (!sessionMap.has(s.id)) {
+							sessionMap.set(s.id, s);
+						}
+					}
+					this.sessions = Array.from(sessionMap.values()).sort(
+						(a, b) => b.startTime - a.startTime
+					);
+					this.saveSessions();
+				}
+
+				if (data.config) {
+					this.config = { ...DEFAULT_CONFIG, ...this.config, ...data.config };
+					this.saveConfig();
+				}
+
+				this.lastSyncedAt = data.syncedAt || Date.now();
+				localStorage.setItem(STORAGE_KEYS.LAST_SYNCED, String(this.lastSyncedAt));
+				this.syncStatus = 'synced';
+				return true;
+			} else {
+				throw new Error(data.error || 'ซิงค์ไม่สำเร็จ');
+			}
+		} catch (err) {
+			console.error('Cloud sync error:', err);
+			this.syncStatus = 'error';
+			this.syncError = err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการซิงค์ข้อมูล';
+			return false;
+		}
+	}
+
+	// -------------------------------------------------------------
+	// Import / Export / Maintenance
+	// -------------------------------------------------------------
+
 	/**
 	 * Exports all data to a structured JSON string.
 	 */
@@ -553,6 +947,29 @@ export class WorkStore {
 	 */
 	get groupedSessions() {
 		return groupSessionsByDate(this.sessions, this.config);
+	}
+
+	/**
+	 * Active safeguard status if active session exists.
+	 */
+	get activeSafeguardStatus(): SafeguardStatus | null {
+		if (!this.activeSession) return null;
+		return calculateSafeguardStatus(this.activeSession, this.config.safeguardMaxHours);
+	}
+
+	/**
+	 * Whether active session exceeds safeguard max hours and is not snoozed.
+	 */
+	get isSafeguardTriggered(): boolean {
+		if (!this.activeSession) return false;
+		return isSessionExceedingSafeguard(this.activeSession, this.config.safeguardMaxHours);
+	}
+
+	/**
+	 * Timed mode shift progress and earnings.
+	 */
+	get timedProgress(): TimedShiftProgress {
+		return calculateTimedModeProgress(this.config, Date.now(), this.activeSession);
 	}
 }
 

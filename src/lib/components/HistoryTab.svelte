@@ -83,7 +83,6 @@
 			const m = s.date.slice(0, 7);
 			set.add(m);
 		}
-		// Also include current month
 		const cur = getLocalDateString().slice(0, 7);
 		set.add(cur);
 		return Array.from(set).sort((a, b) => b.localeCompare(a));
@@ -146,10 +145,7 @@
 		return calculateSessionWage(dummySession, workStore.config);
 	});
 
-	// -------------------------------------------------------------
 	// Actions
-	// -------------------------------------------------------------
-
 	function handleAddManualEntry() {
 		if (!manualDate || !manualStartTime || !manualEndTime) return;
 
@@ -232,7 +228,7 @@
 		deletingSessionId = null;
 	}
 
-	// Export to CSV
+	// Export to CSV with UTF-8 BOM
 	function handleExportCSV() {
 		triggerHaptic(15);
 		const headers = [
@@ -251,7 +247,6 @@
 
 		const rows = filteredSessions.map((session) => {
 			const calc = calculateSessionWage(session, workStore.config);
-			const sD = new Date(session.startTime);
 			const dayOfWeek = isWeekend(session) ? 'วันหยุด' : 'วันธรรมดา';
 			const breakMin = Math.round(calc.breakDurationMs / 60000);
 			const startStr = formatTime(session.startTime);
@@ -273,7 +268,6 @@
 			].join(',');
 		});
 
-		// Include UTF-8 BOM (\uFEFF) so Excel opens Thai text properly
 		const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
 		const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
 		const url = URL.createObjectURL(blob);
@@ -335,12 +329,12 @@
 	}
 </script>
 
-<div class="flex flex-col space-y-5 pb-8 pt-2">
+<div class="flex flex-col space-y-4 pb-8 pt-2">
 	<!-- Top Action Bar & Add Manual Entry Button -->
 	<div class="flex items-center justify-between gap-2">
 		<div>
-			<h2 class="text-base font-bold text-slate-900 dark:text-white">ประวัติการทำงาน</h2>
-			<p class="text-xs text-slate-500 dark:text-slate-400">
+			<h2 class="text-base font-bold text-zinc-900 dark:text-white">ประวัติการทำงาน</h2>
+			<p class="text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums">
 				บันทึกทั้งหมด {workStore.sessions.length} รายการ
 			</p>
 		</div>
@@ -351,7 +345,7 @@
 				triggerHaptic(14);
 				showManualEntryModal = true;
 			}}
-			class="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white shadow-sm shadow-blue-500/20 transition-all hover:bg-blue-700 active:scale-95"
+			class="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-500 active:scale-[0.98] transition-all"
 		>
 			<Plus size={16} />
 			<span>เพิ่มเวลาย้อนหลัง</span>
@@ -360,7 +354,7 @@
 
 	<!-- Month Filter & Chips -->
 	<div
-		class="rounded-2xl border border-slate-200/90 bg-white/80 p-3.5 shadow-xs backdrop-blur-xs dark:border-slate-800/80 dark:bg-slate-900/80 space-y-3"
+		class="rounded-3xl border border-zinc-200/80 bg-white p-4 shadow-xs backdrop-blur-xs dark:border-white/10 dark:bg-[#121215] space-y-3"
 	>
 		<div class="flex items-center gap-2">
 			<!-- Month Selector -->
@@ -369,7 +363,7 @@
 				<select
 					id="history-month-select"
 					bind:value={selectedMonth}
-					class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+					class="w-full appearance-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-800 transition-colors focus:border-blue-500 focus:bg-white focus:outline-hidden dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-100 font-mono"
 				>
 					<option value="all">📅 แสดงทั้งหมด ({workStore.sessions.length} กะ)</option>
 					{#each availableMonths as m}
@@ -385,28 +379,28 @@
 					triggerHaptic(10);
 					filterWeekendOnly = !filterWeekendOnly;
 				}}
-				class="rounded-xl px-3 py-2 text-xs font-semibold transition-all {filterWeekendOnly
+				class="rounded-xl px-3 py-2 text-xs font-semibold transition-all active:scale-[0.98] {filterWeekendOnly
 					? 'bg-purple-600 text-white shadow-xs'
-					: 'border border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'}"
+					: 'border border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-300'}"
 			>
-				วันหยุด (1.5x)
+				วันหยุด ({workStore.config.weekendMultiplier}x)
 			</button>
 		</div>
 
 		<!-- Search Bar -->
 		<div class="relative">
-			<Search size={14} class="absolute left-3 top-2.5 text-slate-400" />
+			<Search size={14} class="absolute left-3 top-2.5 text-zinc-400" />
 			<input
 				type="text"
 				bind:value={searchQuery}
 				placeholder="ค้นหาโน้ต, งาน, หรือวันที่ (YYYY-MM-DD)..."
-				class="w-full rounded-xl border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
+				class="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-1.5 pl-8 pr-3 text-xs text-zinc-800 placeholder-zinc-400 focus:border-blue-500 focus:bg-white focus:outline-hidden dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-100 dark:placeholder-zinc-500"
 			/>
 		</div>
 
 		<!-- Export & Share Buttons Row -->
-		<div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
-			<span class="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+		<div class="flex items-center justify-between pt-1 border-t border-zinc-100 dark:border-white/5">
+			<span class="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 font-mono tabular-nums">
 				พบ {filteredSessions.length} กะ
 			</span>
 
@@ -415,7 +409,7 @@
 				<button
 					type="button"
 					onclick={handleExportCSV}
-					class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+					class="inline-flex items-center gap-1 rounded-xl border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 shadow-2xs hover:bg-zinc-50 active:scale-[0.98] transition-all dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 					title="ดาวน์โหลด CSV"
 				>
 					<FileSpreadsheet size={13} class="text-emerald-600 dark:text-emerald-400" />
@@ -429,7 +423,7 @@
 						triggerHaptic(10);
 						showPayslipModal = true;
 					}}
-					class="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+					class="inline-flex items-center gap-1 rounded-xl border border-zinc-200 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700 shadow-2xs hover:bg-zinc-50 active:scale-[0.98] transition-all dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 					title="ใบสรุปค่าจ้าง"
 				>
 					<Printer size={13} class="text-blue-600 dark:text-blue-400" />
@@ -443,7 +437,7 @@
 						triggerHaptic(10);
 						showLineShareModal = true;
 					}}
-					class="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 shadow-2xs hover:bg-emerald-100 active:scale-95 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+					class="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800 shadow-2xs hover:bg-emerald-100 active:scale-[0.98] transition-all dark:border-emerald-800/80 dark:bg-emerald-950/60 dark:text-emerald-300"
 					title="แชร์สรุปเข้า LINE"
 				>
 					<Share2 size={13} />
@@ -455,23 +449,23 @@
 
 	<!-- Period Summary Mini-Card -->
 	<div
-		class="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200/80 bg-white/60 p-3 shadow-2xs dark:border-slate-800/80 dark:bg-slate-900/60"
+		class="grid grid-cols-3 gap-2 rounded-2xl border border-zinc-200/80 bg-white/70 p-3 shadow-2xs dark:border-white/10 dark:bg-[#121215]"
 	>
 		<div class="text-center">
-			<div class="text-[10px] text-slate-400">ชั่วโมงรวม</div>
-			<div class="font-mono text-sm font-bold text-slate-900 dark:text-white">
+			<div class="text-[10px] text-zinc-400">ชั่วโมงรวม</div>
+			<div class="font-mono text-sm font-bold text-zinc-900 dark:text-white tabular-nums">
 				{filteredSummary.totalHours} ชม.
 			</div>
 		</div>
-		<div class="text-center border-x border-slate-200 dark:border-slate-800">
-			<div class="text-[10px] text-slate-400">ค่าจ้างรวม</div>
-			<div class="font-mono text-sm font-bold text-slate-700 dark:text-slate-300">
+		<div class="text-center border-x border-zinc-200 dark:border-white/10">
+			<div class="text-[10px] text-zinc-400">ค่าจ้างรวม</div>
+			<div class="font-mono text-sm font-bold text-zinc-700 dark:text-zinc-300 tabular-nums">
 				{formatCurrency(filteredSummary.grossWage, workStore.config.currency, 0)}
 			</div>
 		</div>
 		<div class="text-center">
-			<div class="text-[10px] text-slate-400">สุทธิ (หัก {workStore.config.taxDeductionPercent}%)</div>
-			<div class="font-mono text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
+			<div class="text-[10px] text-zinc-400">สุทธิ (หัก {workStore.config.taxDeductionPercent}%)</div>
+			<div class="font-mono text-sm font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
 				{formatCurrency(filteredSummary.netWage, workStore.config.currency, 0)}
 			</div>
 		</div>
@@ -479,62 +473,62 @@
 
 	<!-- Sessions Grouped By Date List -->
 	{#if filteredGroups.length === 0}
-		<div class="flex flex-col items-center justify-center py-12 text-center">
+		<div class="flex flex-col items-center justify-center py-12 text-center rounded-3xl border border-zinc-200/80 bg-white p-6 dark:border-white/10 dark:bg-[#121215]">
 			<div
-				class="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500"
+				class="flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-500"
 			>
 				<Calendar size={24} />
 			</div>
-			<p class="mt-2 text-sm font-bold text-slate-700 dark:text-slate-300">
+			<p class="mt-2 text-sm font-bold text-zinc-700 dark:text-zinc-300">
 				ไม่พบรายการประวัติงาน
 			</p>
-			<p class="text-xs text-slate-400">
-				ลองเปลี่ยนเงื่อนไขการค้นหา หรือกดปุ่ม "เพิ่มเวลาย้อนหลัง"
+			<p class="text-xs text-zinc-400 mt-1 max-w-xs">
+				ลองเปลี่ยนเงื่อนไขการค้นหา หรือกดปุ่ม "เพิ่มเวลาย้อนหลัง" เพื่อบันทึกเวลาทำงาน
 			</p>
 		</div>
 	{:else}
-		<div class="space-y-4">
+		<div class="space-y-3.5">
 			{#each filteredGroups as group (group.date)}
 				<div
-					class="overflow-hidden rounded-3xl border border-slate-200/90 bg-white/90 shadow-xs backdrop-blur-xs dark:border-slate-800/90 dark:bg-slate-900/90"
+					class="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white shadow-xs backdrop-blur-xs dark:border-white/10 dark:bg-[#121215]"
 				>
 					<!-- Date Group Header -->
 					<div
-						class="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-4 py-2.5 dark:border-slate-800 dark:bg-slate-800/50"
+						class="flex items-center justify-between border-b border-zinc-100 bg-zinc-50/80 px-4 py-2.5 dark:border-white/5 dark:bg-zinc-900/60"
 					>
 						<div class="flex items-center gap-2">
-							<span class="text-xs font-bold text-slate-800 dark:text-slate-100">
+							<span class="text-xs font-bold text-zinc-800 dark:text-zinc-100">
 								{formatThaiDate(group.date, { showDayOfWeek: true, showYear: true })}
 							</span>
 							{#if group.isWeekend}
 								<span
 									class="rounded-md bg-purple-100 px-1.5 py-0.5 text-[10px] font-bold text-purple-700 dark:bg-purple-950 dark:text-purple-300"
 								>
-									เสาร์-อาทิตย์ ({workStore.config.weekendMultiplier}x)
+									วันหยุด ({workStore.config.weekendMultiplier}x)
 								</span>
 							{/if}
 						</div>
 
 						<div class="text-right">
-							<span class="font-mono text-xs font-extrabold text-emerald-600 dark:text-emerald-400">
+							<span class="font-mono text-xs font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
 								{formatCurrency(group.netWage, workStore.config.currency)}
 							</span>
-							<span class="text-[10px] text-slate-400"> ({group.totalHours} ชม.)</span>
+							<span class="text-[10px] text-zinc-400 font-mono tabular-nums"> ({group.totalHours} ชม.)</span>
 						</div>
 					</div>
 
 					<!-- Session Items in this Day -->
-					<div class="divide-y divide-slate-100 px-4 dark:divide-slate-800/80">
+					<div class="divide-y divide-zinc-100 px-4 dark:divide-white/5">
 						{#each group.sessions as session (session.id)}
 							{@const calc = calculateSessionWage(session, workStore.config)}
 							<div class="flex items-center justify-between py-3">
 								<div class="flex flex-col">
 									<div class="flex items-center gap-2">
-										<span class="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
+										<span class="font-mono text-xs font-bold text-zinc-800 dark:text-zinc-200 tabular-nums">
 											{formatTime(session.startTime)} - {formatTime(session.endTime)}
 										</span>
 										<span
-											class="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+											class="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
 										>
 											{formatDuration(calc.netDurationMs, 'thai-short')}
 										</span>
@@ -548,7 +542,7 @@
 									</div>
 
 									{#if session.note}
-										<span class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+										<span class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
 											📝 {session.note}
 										</span>
 									{/if}
@@ -556,10 +550,10 @@
 
 								<div class="flex items-center gap-1.5">
 									<div class="text-right">
-										<div class="text-xs font-bold text-slate-900 dark:text-white">
+										<div class="text-xs font-bold font-mono text-zinc-900 dark:text-white tabular-nums">
 											{formatCurrency(calc.netWage, workStore.config.currency)}
 										</div>
-										<div class="text-[9px] text-slate-400">
+										<div class="text-[9px] text-zinc-400 font-mono tabular-nums">
 											@{calc.effectiveRate}฿
 										</div>
 									</div>
@@ -568,7 +562,7 @@
 									<button
 										type="button"
 										onclick={() => openEditModal(session)}
-										class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+										class="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors"
 										title="แก้ไข"
 										aria-label="แก้ไขกะนี้"
 									>
@@ -577,7 +571,7 @@
 									<button
 										type="button"
 										onclick={() => (deletingSessionId = session.id)}
-										class="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+										class="rounded-lg p-1.5 text-zinc-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition-colors"
 										title="ลบ"
 										aria-label="ลบกะนี้"
 									>
@@ -589,21 +583,21 @@
 							<!-- Delete Confirmation Inline -->
 							{#if deletingSessionId === session.id}
 								<div
-									class="my-2 flex items-center justify-between rounded-xl bg-red-50 p-2.5 text-xs text-red-900 dark:bg-red-950/60 dark:text-red-200"
+									class="my-2 flex items-center justify-between rounded-xl bg-rose-50 p-2.5 text-xs text-rose-900 dark:bg-rose-950/60 dark:text-rose-200"
 								>
 									<span>ยืนยันลบกะงานนี้?</span>
 									<div class="flex items-center gap-1.5">
 										<button
 											type="button"
 											onclick={() => (deletingSessionId = null)}
-											class="rounded-lg border border-slate-300 bg-white px-2 py-1 font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+											class="rounded-lg border border-zinc-300 bg-white px-2 py-1 font-medium text-zinc-700 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 										>
 											ยกเลิก
 										</button>
 										<button
 											type="button"
 											onclick={() => handleDeleteSession(session.id)}
-											class="rounded-lg bg-red-600 px-2 py-1 font-bold text-white hover:bg-red-700"
+											class="rounded-lg bg-rose-600 px-2 py-1 font-bold text-white hover:bg-rose-700 active:scale-[0.98] transition-all"
 										>
 											ลบ
 										</button>
@@ -623,22 +617,22 @@
 <!-- ============================================== -->
 {#if showManualEntryModal}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
 		role="dialog"
 		aria-modal="true"
 	>
 		<div
-			class="relative w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+			class="relative w-full max-w-sm rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#121215]"
 		>
-			<div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+			<div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-white/5">
 				<div class="flex items-center gap-2">
 					<Plus size={18} class="text-blue-600 dark:text-blue-400" />
-					<h3 class="text-base font-bold text-slate-900 dark:text-white">เพิ่มเวลาย้อนหลัง</h3>
+					<h3 class="text-base font-bold text-zinc-900 dark:text-white">เพิ่มเวลาย้อนหลัง</h3>
 				</div>
 				<button
 					type="button"
 					onclick={() => (showManualEntryModal = false)}
-					class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+					class="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
 					aria-label="ปิด"
 				>
 					<X size={18} />
@@ -647,38 +641,38 @@
 
 			<div class="mt-4 space-y-3">
 				<div>
-					<label for="manual-date-input" class="block text-xs font-semibold text-slate-600 dark:text-slate-400">วันที่ทำงาน</label>
+					<label for="manual-date-input" class="block text-xs font-semibold text-zinc-600 dark:text-zinc-400">วันที่ทำงาน</label>
 					<input
 						id="manual-date-input"
 						type="date"
 						bind:value={manualDate}
-						class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+						class="mt-1 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-medium text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100"
 					/>
 				</div>
 
 				<div class="grid grid-cols-2 gap-2">
 					<div>
-						<label for="manual-start-input" class="block text-xs font-semibold text-slate-600 dark:text-slate-400">เวลาเริ่มงาน</label>
+						<label for="manual-start-input" class="block text-xs font-semibold text-zinc-600 dark:text-zinc-400">เวลาเริ่มงาน</label>
 						<input
 							id="manual-start-input"
 							type="time"
 							bind:value={manualStartTime}
-							class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+							class="mt-1 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-mono font-medium text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100"
 						/>
 					</div>
 					<div>
-						<label for="manual-end-input" class="block text-xs font-semibold text-slate-600 dark:text-slate-400">เวลาเลิกงาน</label>
+						<label for="manual-end-input" class="block text-xs font-semibold text-zinc-600 dark:text-zinc-400">เวลาเลิกงาน</label>
 						<input
 							id="manual-end-input"
 							type="time"
 							bind:value={manualEndTime}
-							class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+							class="mt-1 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-mono font-medium text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100"
 						/>
 					</div>
 				</div>
 
 				<div>
-					<label for="manual-break-input" class="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+					<label for="manual-break-input" class="block text-xs font-semibold text-zinc-600 dark:text-zinc-400">
 						เวลาพักเบรก (นาที)
 					</label>
 					<div class="mt-1 flex items-center gap-2">
@@ -688,27 +682,27 @@
 							min="0"
 							step="5"
 							bind:value={manualBreakMinutes}
-							class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+							class="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-mono font-medium text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100"
 						/>
-						<div class="flex gap-1">
+						<div class="flex gap-1 font-mono">
 							<button
 								type="button"
 								onclick={() => (manualBreakMinutes = 0)}
-								class="rounded-lg border border-slate-200 px-2 py-1 text-[10px] dark:border-slate-700"
+								class="rounded-lg border border-zinc-200 px-2 py-1 text-[10px] dark:border-white/10"
 							>
 								0น.
 							</button>
 							<button
 								type="button"
 								onclick={() => (manualBreakMinutes = 30)}
-								class="rounded-lg border border-slate-200 px-2 py-1 text-[10px] dark:border-slate-700"
+								class="rounded-lg border border-zinc-200 px-2 py-1 text-[10px] dark:border-white/10"
 							>
 								30น.
 							</button>
 							<button
 								type="button"
 								onclick={() => (manualBreakMinutes = 60)}
-								class="rounded-lg border border-slate-200 px-2 py-1 text-[10px] dark:border-slate-700"
+								class="rounded-lg border border-zinc-200 px-2 py-1 text-[10px] dark:border-white/10"
 							>
 								60น.
 							</button>
@@ -717,7 +711,7 @@
 				</div>
 
 				<div>
-					<label for="manual-note-input" class="block text-xs font-semibold text-slate-600 dark:text-slate-400">
+					<label for="manual-note-input" class="block text-xs font-semibold text-zinc-600 dark:text-zinc-400">
 						โน้ตช่วยจำ (ตัวเลือก)
 					</label>
 					<input
@@ -725,7 +719,7 @@
 						type="text"
 						bind:value={manualNote}
 						placeholder="เช่น กะเช้า, ซัพพอร์ตลูกค้า..."
-						class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 placeholder-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
+						class="mt-1 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-800 placeholder-zinc-400 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100 dark:placeholder-zinc-500"
 					/>
 				</div>
 
@@ -736,11 +730,11 @@
 					>
 						<div class="flex items-center justify-between text-blue-900 dark:text-blue-200">
 							<span>ชั่วโมงสุทธิ:</span>
-							<span class="font-bold">{manualPreview.roundedDurationHours} ชม.</span>
+							<span class="font-bold font-mono tabular-nums">{manualPreview.roundedDurationHours} ชม.</span>
 						</div>
 						<div class="flex items-center justify-between text-blue-900 dark:text-blue-200">
 							<span>อัตราคำนวณ:</span>
-							<span class="font-bold">
+							<span class="font-bold font-mono tabular-nums">
 								{manualPreview.effectiveRate}฿/ชม. {manualPreview.isWeekend
 									? `(วันหยุด ${workStore.config.weekendMultiplier}x)`
 									: ''}
@@ -750,7 +744,7 @@
 							class="mt-1 flex items-center justify-between pt-1 border-t border-blue-200/60 font-bold text-emerald-700 dark:text-emerald-300 dark:border-blue-800"
 						>
 							<span>ค่าจ้างสุทธิ:</span>
-							<span>{formatCurrency(manualPreview.netWage, workStore.config.currency)}</span>
+							<span class="font-mono tabular-nums">{formatCurrency(manualPreview.netWage, workStore.config.currency)}</span>
 						</div>
 					</div>
 				{/if}
@@ -760,14 +754,14 @@
 				<button
 					type="button"
 					onclick={() => (showManualEntryModal = false)}
-					class="rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+					class="rounded-xl border border-zinc-200 bg-white py-2.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 				>
 					ยกเลิก
 				</button>
 				<button
 					type="button"
 					onclick={handleAddManualEntry}
-					class="rounded-xl bg-blue-600 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/25 hover:bg-blue-700"
+					class="rounded-xl bg-blue-600 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-blue-500 active:scale-[0.98] transition-all"
 				>
 					บันทึกกะงาน
 				</button>
@@ -781,19 +775,19 @@
 <!-- ============================================== -->
 {#if editingSession}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
 		role="dialog"
 		aria-modal="true"
 	>
 		<div
-			class="relative w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+			class="relative w-full max-w-sm rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#121215]"
 		>
-			<div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-				<h3 class="text-base font-bold text-slate-900 dark:text-white">แก้ไขกะงาน</h3>
+			<div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-white/5">
+				<h3 class="text-base font-bold text-zinc-900 dark:text-white">แก้ไขกะงาน</h3>
 				<button
 					type="button"
 					onclick={() => (editingSession = null)}
-					class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+					class="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
 					aria-label="ปิด"
 				>
 					<X size={18} />
@@ -802,55 +796,55 @@
 
 			<div class="mt-4 space-y-3">
 				<div>
-					<label for="edit-hist-date-input" class="block text-xs font-medium text-slate-600 dark:text-slate-400">วันที่</label>
+					<label for="edit-hist-date-input" class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">วันที่</label>
 					<input
 						id="edit-hist-date-input"
 						type="date"
 						bind:value={editDate}
-						class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+						class="mt-1 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100"
 					/>
 				</div>
 
 				<div class="grid grid-cols-2 gap-2">
 					<div>
-						<label for="edit-hist-start-input" class="block text-xs font-medium text-slate-600 dark:text-slate-400">เวลาเริ่ม</label>
+						<label for="edit-hist-start-input" class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">เวลาเริ่ม</label>
 						<input
 							id="edit-hist-start-input"
 							type="time"
 							bind:value={editStartTime}
-							class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+							class="mt-1 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-mono text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100"
 						/>
 					</div>
 					<div>
-						<label for="edit-hist-end-input" class="block text-xs font-medium text-slate-600 dark:text-slate-400">เวลาเลิกงาน</label>
+						<label for="edit-hist-end-input" class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">เวลาเลิกงาน</label>
 						<input
 							id="edit-hist-end-input"
 							type="time"
 							bind:value={editEndTime}
-							class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+							class="mt-1 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-mono text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100"
 						/>
 					</div>
 				</div>
 
 				<div>
-					<label for="edit-hist-break-input" class="block text-xs font-medium text-slate-600 dark:text-slate-400">เวลาพัก (นาที)</label>
+					<label for="edit-hist-break-input" class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">เวลาพัก (นาที)</label>
 					<input
 						id="edit-hist-break-input"
 						type="number"
 						min="0"
 						step="5"
 						bind:value={editBreakMinutes}
-						class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+						class="mt-1 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-mono text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100"
 					/>
 				</div>
 
 				<div>
-					<label for="edit-hist-note-input" class="block text-xs font-medium text-slate-600 dark:text-slate-400">โน้ต</label>
+					<label for="edit-hist-note-input" class="block text-xs font-medium text-zinc-600 dark:text-zinc-400">โน้ต</label>
 					<input
 						id="edit-hist-note-input"
 						type="text"
 						bind:value={editNote}
-						class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+						class="mt-1 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-100"
 					/>
 				</div>
 			</div>
@@ -859,14 +853,14 @@
 				<button
 					type="button"
 					onclick={() => (editingSession = null)}
-					class="rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+					class="rounded-xl border border-zinc-200 bg-white py-2.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 				>
 					ยกเลิก
 				</button>
 				<button
 					type="button"
 					onclick={handleSaveEdit}
-					class="rounded-xl bg-blue-600 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-500/25 hover:bg-blue-700"
+					class="rounded-xl bg-blue-600 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-blue-500 active:scale-[0.98] transition-all"
 				>
 					บันทึกการแก้ไข
 				</button>
@@ -880,25 +874,25 @@
 <!-- ============================================== -->
 {#if showPayslipModal}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
 		role="dialog"
 		aria-modal="true"
 	>
 		<div
-			class="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+			class="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#121215]"
 		>
 			<!-- Header -->
 			<div
-				class="flex items-center justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-800"
+				class="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 dark:border-white/10"
 			>
 				<div class="flex items-center gap-2">
 					<Printer size={18} class="text-blue-600 dark:text-blue-400" />
-					<h3 class="text-sm font-bold text-slate-900 dark:text-white">ใบสรุปค่าจ้าง (Payslip)</h3>
+					<h3 class="text-sm font-bold text-zinc-900 dark:text-white">ใบสรุปค่าจ้าง (Payslip)</h3>
 				</div>
 				<button
 					type="button"
 					onclick={() => (showPayslipModal = false)}
-					class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+					class="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
 					aria-label="ปิด"
 				>
 					<X size={18} />
@@ -906,73 +900,73 @@
 			</div>
 
 			<!-- Payslip Body (Print area) -->
-			<div class="flex-1 overflow-y-auto p-5 text-slate-900 dark:text-slate-100" id="payslip-print-area">
-				<div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+			<div class="flex-1 overflow-y-auto p-5 text-zinc-900 dark:text-zinc-100" id="payslip-print-area">
+				<div class="rounded-2xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-white/10 dark:bg-zinc-900/40">
 					<!-- Title -->
-					<div class="text-center pb-3 border-b border-slate-200 dark:border-slate-800">
-						<h2 class="text-base font-black tracking-tight text-slate-900 dark:text-white">
+					<div class="text-center pb-3 border-b border-zinc-200 dark:border-white/10">
+						<h2 class="text-base font-black tracking-tight text-zinc-900 dark:text-white">
 							{payslipCompanyName}
 						</h2>
-						<p class="text-xs text-slate-500">ใบแสดงยอดค่าจ้างการปฏิบัติงานรายชั่วโมง</p>
+						<p class="text-xs text-zinc-500">ใบแสดงยอดค่าจ้างการปฏิบัติงานรายชั่วโมง</p>
 					</div>
 
 					<!-- Metadata -->
 					<div class="mt-3 grid grid-cols-2 gap-2 text-xs">
 						<div>
-							<span class="text-slate-400">ชื่อผู้รับเงิน:</span>
+							<span class="text-zinc-400">ชื่อผู้รับเงิน:</span>
 							<input
 								type="text"
 								bind:value={payslipWorkerName}
-								class="mt-0.5 w-full rounded-md border border-transparent bg-transparent font-semibold focus:border-slate-300 dark:focus:border-slate-700"
+								class="mt-0.5 w-full rounded-md border border-transparent bg-transparent font-semibold focus:border-zinc-300 dark:focus:border-zinc-700"
 							/>
 						</div>
 						<div class="text-right">
-							<span class="text-slate-400">ช่วงเวลา:</span>
-							<div class="font-semibold">{selectedMonth === 'all' ? 'ประวัติทั้งหมด' : selectedMonth}</div>
+							<span class="text-zinc-400">ช่วงเวลา:</span>
+							<div class="font-semibold font-mono">{selectedMonth === 'all' ? 'ประวัติทั้งหมด' : selectedMonth}</div>
 						</div>
 						<div>
-							<span class="text-slate-400">วันที่พิมพ์:</span>
+							<span class="text-zinc-400">วันที่พิมพ์:</span>
 							<div>{formatThaiDate(new Date(), { showDayOfWeek: false, showYear: true })}</div>
 						</div>
 						<div class="text-right">
-							<span class="text-slate-400">โหมดปัดเศษ:</span>
-							<div>{workStore.config.roundingMode}</div>
+							<span class="text-zinc-400">โหมดปัดเศษ:</span>
+							<div class="font-mono">{workStore.config.roundingMode}</div>
 						</div>
 					</div>
 
 					<!-- Summary Table -->
-					<div class="mt-4 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+					<div class="mt-4 overflow-hidden rounded-xl border border-zinc-200 dark:border-white/10">
 						<table class="w-full text-left text-xs">
-							<thead class="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+							<thead class="bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
 								<tr>
 									<th class="py-1.5 px-2.5">รายการ</th>
 									<th class="py-1.5 px-2.5 text-right">จำนวน</th>
 								</tr>
 							</thead>
-							<tbody class="divide-y divide-slate-100 dark:divide-slate-800/80">
+							<tbody class="divide-y divide-zinc-100 dark:divide-white/5">
 								<tr>
 									<td class="py-1.5 px-2.5">จำนวนกะที่ปฏิบัติงาน</td>
-									<td class="py-1.5 px-2.5 text-right font-medium">{filteredSummary.sessionCount} กะ</td>
+									<td class="py-1.5 px-2.5 text-right font-medium font-mono tabular-nums">{filteredSummary.sessionCount} กะ</td>
 								</tr>
 								<tr>
 									<td class="py-1.5 px-2.5">ชั่วโมงปฏิบัติงานรวม</td>
-									<td class="py-1.5 px-2.5 text-right font-medium">{filteredSummary.totalHours} ชม.</td>
+									<td class="py-1.5 px-2.5 text-right font-medium font-mono tabular-nums">{filteredSummary.totalHours} ชม.</td>
 								</tr>
 								<tr>
 									<td class="py-1.5 px-2.5">ค่าจ้างรวม (Gross)</td>
-									<td class="py-1.5 px-2.5 text-right font-medium">
+									<td class="py-1.5 px-2.5 text-right font-medium font-mono tabular-nums">
 										{formatCurrency(filteredSummary.grossWage, workStore.config.currency)}
 									</td>
 								</tr>
 								<tr class="text-rose-600 dark:text-rose-400">
 									<td class="py-1.5 px-2.5">หัก ณ ที่จ่าย ({workStore.config.taxDeductionPercent}%)</td>
-									<td class="py-1.5 px-2.5 text-right font-medium">
+									<td class="py-1.5 px-2.5 text-right font-medium font-mono tabular-nums">
 										-{formatCurrency(filteredSummary.taxDeduction, workStore.config.currency)}
 									</td>
 								</tr>
 								<tr class="bg-emerald-50/80 font-bold text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
 									<td class="py-2 px-2.5 text-sm">ยอดจ่ายสุทธิ (Net Payout)</td>
-									<td class="py-2 px-2.5 text-right text-base font-black">
+									<td class="py-2 px-2.5 text-right text-base font-black font-mono tabular-nums">
 										{formatCurrency(filteredSummary.netWage, workStore.config.currency)}
 									</td>
 								</tr>
@@ -981,13 +975,13 @@
 					</div>
 
 					<!-- Signature Placeholders -->
-					<div class="mt-6 grid grid-cols-2 gap-4 text-center text-[10px] text-slate-400">
+					<div class="mt-6 grid grid-cols-2 gap-4 text-center text-[10px] text-zinc-400">
 						<div>
-							<div class="mx-auto h-8 border-b border-dashed border-slate-300 dark:border-slate-700"></div>
+							<div class="mx-auto h-8 border-b border-dashed border-zinc-300 dark:border-zinc-700"></div>
 							<div class="mt-1">ลงชื่อ ผู้ปฏิบัติงาน</div>
 						</div>
 						<div>
-							<div class="mx-auto h-8 border-b border-dashed border-slate-300 dark:border-slate-700"></div>
+							<div class="mx-auto h-8 border-b border-dashed border-zinc-300 dark:border-zinc-700"></div>
 							<div class="mt-1">ลงชื่อ ผู้ตรวจสอบ / อนุมัติ</div>
 						</div>
 					</div>
@@ -995,18 +989,18 @@
 			</div>
 
 			<!-- Footer -->
-			<div class="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-3 dark:border-slate-800 dark:bg-slate-900">
+			<div class="flex items-center justify-between border-t border-zinc-200 bg-zinc-50 px-5 py-3 dark:border-white/10 dark:bg-[#121215]">
 				<button
 					type="button"
 					onclick={() => (showPayslipModal = false)}
-					class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+					class="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 				>
 					ปิด
 				</button>
 				<button
 					type="button"
 					onclick={handlePrint}
-					class="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700"
+					class="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-500 active:scale-[0.98] transition-all"
 				>
 					<Printer size={15} />
 					<span>พิมพ์เอกสาร (Print)</span>
@@ -1021,40 +1015,40 @@
 <!-- ============================================== -->
 {#if showLineShareModal}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
 		role="dialog"
 		aria-modal="true"
 	>
 		<div
-			class="relative w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+			class="relative w-full max-w-sm rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#121215]"
 		>
-			<div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+			<div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-white/5">
 				<div class="flex items-center gap-2">
 					<Share2 size={18} class="text-emerald-600 dark:text-emerald-400" />
-					<h3 class="text-base font-bold text-slate-900 dark:text-white">แชร์สรุปเข้า LINE</h3>
+					<h3 class="text-base font-bold text-zinc-900 dark:text-white">แชร์สรุปเข้า LINE</h3>
 				</div>
 				<button
 					type="button"
 					onclick={() => (showLineShareModal = false)}
-					class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+					class="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
 					aria-label="ปิด"
 				>
 					<X size={18} />
 				</button>
 			</div>
 
-			<p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+			<p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
 				ข้อความสรุปพร้อมส่งใน LINE หรือแชททีม:
 			</p>
 
 			<pre
-				class="mt-3 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-slate-200 bg-slate-50 p-3 font-sans text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">{lineShareText}</pre>
+				class="mt-3 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-zinc-200 bg-zinc-50 p-3 font-sans text-xs text-zinc-800 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-200">{lineShareText}</pre>
 
 			<div class="mt-4 flex flex-col gap-2">
 				<button
 					type="button"
 					onclick={handleCopyLineText}
-					class="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-2.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+					class="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white py-2.5 text-xs font-bold text-zinc-700 shadow-2xs hover:bg-zinc-50 active:scale-[0.98] transition-all dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-200"
 				>
 					{#if copySuccess}
 						<Check size={16} class="text-emerald-600" />
@@ -1068,7 +1062,7 @@
 				<button
 					type="button"
 					onclick={handleOpenLineApp}
-					class="flex items-center justify-center gap-2 rounded-xl bg-[#06C755] py-2.5 text-xs font-bold text-white shadow-md shadow-emerald-500/20 hover:bg-[#05b34c] active:scale-95"
+					class="flex items-center justify-center gap-2 rounded-xl bg-[#06C755] py-2.5 text-xs font-bold text-white shadow-xs hover:bg-[#05b34c] active:scale-[0.98] transition-all"
 				>
 					<ExternalLink size={16} />
 					<span>เปิดแอป LINE เพื่อส่งทันที</span>

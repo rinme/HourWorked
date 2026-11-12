@@ -1,14 +1,17 @@
 <script lang="ts">
-	import { Sun, Moon, Coffee, Timer, Sparkles } from 'lucide-svelte';
+	import { Sun, Moon, Coffee, Timer, Sparkles, Cloud, CloudOff, RefreshCw, UserCheck } from 'lucide-svelte';
 	import { workStore } from '../storage.svelte';
 	import { themeStore } from '../theme.svelte';
 	import { formatThaiDate } from '../calculator';
+	import AuthModal from './AuthModal.svelte';
 
 	let {
 		onStatusClick
 	}: {
 		onStatusClick?: () => void;
 	} = $props();
+
+	let showAuthModal = $state(false);
 
 	// Current Thai formatted date
 	const todayDateString = $derived(
@@ -29,10 +32,15 @@
 		triggerHaptic(12);
 		themeStore.toggleTheme();
 	}
+
+	function handleOpenAuth() {
+		triggerHaptic(10);
+		showAuthModal = true;
+	}
 </script>
 
 <header
-	class="sticky top-0 z-30 mx-auto w-full max-w-md border-b border-slate-200/80 bg-white/90 px-4 pt-[max(env(safe-area-inset-top,0px),10px)] pb-3 shadow-xs backdrop-blur-xl transition-colors duration-200 dark:border-slate-800/80 dark:bg-slate-900/90"
+	class="sticky top-0 z-30 mx-auto w-full max-w-md border-b border-zinc-200/80 bg-white/90 px-4 pt-[max(env(safe-area-inset-top,0px),10px)] pb-3 shadow-xs backdrop-blur-xl transition-colors duration-200 dark:border-white/10 dark:bg-[#09090b]/90"
 >
 	<div class="flex items-center justify-between gap-2">
 		<!-- Left: Logo & Brand -->
@@ -41,30 +49,57 @@
 				class="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 p-0.5 shadow-md shadow-blue-500/20 ring-1 ring-white/20"
 			>
 				<span class="text-base font-black tracking-tight text-white select-none">HW</span>
-				<!-- Mini ambient dot -->
-				<span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-white dark:ring-slate-900"></span>
+				<!-- Ambient sync dot -->
+				<span
+					class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white dark:ring-[#09090b] {workStore.user
+						? 'bg-emerald-400'
+						: 'bg-zinc-400'}"
+				></span>
 			</div>
 
 			<div class="flex flex-col">
 				<div class="flex items-center gap-1.5">
-					<span class="text-base font-bold tracking-tight text-slate-900 dark:text-white">
+					<span class="text-base font-bold tracking-tight text-zinc-900 dark:text-white">
 						HourWorked
 					</span>
 					<span
-						class="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+						class="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-900/40"
 					>
 						THB
 					</span>
 				</div>
 				<!-- Thai Date -->
-				<span class="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+				<span class="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
 					{todayDateString}
 				</span>
 			</div>
 		</div>
 
-		<!-- Right: Status Pill & Theme Switcher -->
-		<div class="flex items-center gap-2">
+		<!-- Right: Cloud Sync Badge & Status Pill & Theme Switcher -->
+		<div class="flex items-center gap-1.5 sm:gap-2">
+			<!-- Cloud Sync Status Badge -->
+			<button
+				type="button"
+				onclick={handleOpenAuth}
+				class="group flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-all duration-150 active:scale-95 border {workStore.user
+					? workStore.syncStatus === 'syncing'
+						? 'border-blue-300/80 bg-blue-50 text-blue-700 dark:border-blue-800/80 dark:bg-blue-950/40 dark:text-blue-300'
+						: 'border-emerald-300/80 bg-emerald-50 text-emerald-700 dark:border-emerald-800/80 dark:bg-emerald-950/40 dark:text-emerald-300'
+					: 'border-zinc-200 bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70 dark:border-white/10 dark:bg-zinc-800/70 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
+				title={workStore.user ? `เชื่อมต่อ: ${workStore.user.username}` : 'คลิกเพื่อเข้าสู่ระบบ & Cloud Sync'}
+			>
+				{#if workStore.syncStatus === 'syncing'}
+					<RefreshCw size={11} class="animate-spin text-blue-600 dark:text-blue-400" />
+					<span class="tabular-nums font-mono">↻ Syncing</span>
+				{:else if workStore.user}
+					<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+					<span class="tabular-nums">● Synced</span>
+				{:else}
+					<span class="h-1.5 w-1.5 rounded-full border border-zinc-400 dark:border-zinc-500"></span>
+					<span>○ Guest</span>
+				{/if}
+			</button>
+
 			<!-- Status Pill -->
 			<button
 				type="button"
@@ -72,17 +107,17 @@
 					triggerHaptic(8);
 					onStatusClick?.();
 				}}
-				class="group flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition-all duration-200 active:scale-95 {workStore.isClockedIn
+				class="group flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition-all duration-150 active:scale-95 border {workStore.isClockedIn
 					? workStore.isOnBreak
-						? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300/60 dark:bg-amber-950/60 dark:text-amber-300 dark:ring-amber-800/60'
-						: 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300/60 dark:bg-emerald-950/60 dark:text-emerald-300 dark:ring-emerald-800/60'
-					: 'bg-slate-100 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700'}"
-				title="สถานะปัจจุบัน"
+						? 'border-amber-300/80 bg-amber-50 text-amber-800 dark:border-amber-800/80 dark:bg-amber-950/60 dark:text-amber-300'
+						: 'border-emerald-300/80 bg-emerald-50 text-emerald-800 dark:border-emerald-800/80 dark:bg-emerald-950/60 dark:text-emerald-300'
+					: 'border-zinc-200 bg-zinc-100 text-zinc-600 dark:border-white/10 dark:bg-zinc-800/70 dark:text-zinc-300'}"
+				title="สถานะกะทำงานปัจจุบัน"
 			>
 				{#if workStore.isClockedIn}
 					{#if workStore.isOnBreak}
-						<Coffee size={13} class="animate-bounce text-amber-600 dark:text-amber-400" />
-						<span>พักเบรก</span>
+						<Coffee size={12} class="animate-bounce text-amber-600 dark:text-amber-400" />
+						<span>พัก</span>
 					{:else}
 						<span class="relative flex h-2 w-2">
 							<span
@@ -90,11 +125,11 @@
 							></span>
 							<span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
 						</span>
-						<span class="font-bold">ทำงานอยู่</span>
+						<span class="font-bold">เข้างาน</span>
 					{/if}
 				{:else}
-					<span class="h-1.5 w-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
-					<span>พร้อมเข้างาน</span>
+					<span class="h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500"></span>
+					<span>พร้อม</span>
 				{/if}
 			</button>
 
@@ -103,14 +138,17 @@
 				type="button"
 				onclick={handleToggleTheme}
 				aria-label={themeStore.isDark ? 'สลับเป็นโหมดสว่าง' : 'สลับเป็นโหมดมืด'}
-				class="relative flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200/80 bg-slate-50 text-slate-600 transition-all duration-200 hover:bg-slate-100 active:scale-90 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-300 dark:hover:bg-slate-800"
+				class="relative flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200/80 bg-zinc-50 text-zinc-600 transition-all duration-150 hover:bg-zinc-100 active:scale-90 dark:border-white/10 dark:bg-zinc-800/80 dark:text-zinc-300 dark:hover:bg-zinc-800"
 			>
 				{#if themeStore.isDark}
-					<Sun size={17} class="text-amber-400 transition-transform duration-300 rotate-0 hover:rotate-45" />
+					<Sun size={16} class="text-amber-400 transition-transform duration-300 rotate-0 hover:rotate-45" />
 				{:else}
-					<Moon size={17} class="text-slate-700 transition-transform duration-300 -rotate-12 hover:rotate-0" />
+					<Moon size={16} class="text-zinc-700 transition-transform duration-300 -rotate-12 hover:rotate-0" />
 				{/if}
 			</button>
 		</div>
 	</div>
 </header>
+
+<!-- Auth & Cloud Sync Modal -->
+<AuthModal bind:isOpen={showAuthModal} />

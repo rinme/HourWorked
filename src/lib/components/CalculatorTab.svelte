@@ -15,10 +15,24 @@
 		DollarSign,
 		ShieldCheck,
 		Info,
-		Calendar
+		Calendar,
+		Clock,
+		Bell,
+		BellRing,
+		BellOff,
+		Sparkles,
+		Zap
 	} from 'lucide-svelte';
 	import { workStore } from '#lib/storage.svelte';
 	import { simulateWage, formatCurrency } from '#lib/calculator';
+	import {
+		isPushNotificationSupported,
+		isStandalonePWA,
+		isIOS,
+		subscribeToPushNotifications,
+		unsubscribeFromPushNotifications,
+		triggerTestPush
+	} from '#lib/push';
 	import type { RoundingMode } from '#lib/types';
 
 	// Simulator sliders state
@@ -32,7 +46,10 @@
 	let importFeedback = $state<{ success: boolean; message: string } | null>(null);
 	let saveFeedback = $state(false);
 
-	let fileInputRef: HTMLInputElement | null = null;
+	// Push notification state
+	let isPushSubscribed = $state(false);
+	let pushLoading = $state(false);
+	let pushMessage = $state<{ text: string; isError?: boolean } | null>(null);
 
 	function triggerHaptic(duration = 10) {
 		if (typeof window !== 'undefined' && 'navigator' in window && 'vibrate' in navigator) {
@@ -63,6 +80,9 @@
 
 	// Quick weekend multipliers
 	const multipliers = [1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
+
+	// Safeguard presets
+	const safeguardPresets = [8, 10, 12, 14, 16];
 
 	// Quick tax presets
 	const taxPresets = [0, 1, 3, 5];
@@ -105,6 +125,65 @@
 		showSaveToast();
 	}
 
+	function updateSafeguardMaxHours(hours: number) {
+		triggerHaptic(10);
+		workStore.updateConfig({ safeguardMaxHours: Math.max(1, hours) });
+		showSaveToast();
+	}
+
+	function updateTimedMode(updates: Partial<typeof workStore.config>) {
+		triggerHaptic(8);
+		workStore.updateConfig(updates);
+		showSaveToast();
+	}
+
+	// Push Notification handler
+	async function handleTogglePush() {
+		triggerHaptic(15);
+		pushLoading = true;
+		pushMessage = null;
+
+		try {
+			if (isPushSubscribed) {
+				const ok = await unsubscribeFromPushNotifications();
+				isPushSubscribed = !ok;
+				pushMessage = { text: 'ยกเลิกการรับแจ้งเตือนแล้ว' };
+			} else {
+				const res = await subscribeToPushNotifications();
+				if (res.success) {
+					isPushSubscribed = true;
+					pushMessage = { text: 'เปิดการแจ้งเตือน Web Push สำเร็จ!' };
+				} else {
+					pushMessage = { text: res.error || 'ไม่สามารถเปิดการแจ้งเตือนได้', isError: true };
+				}
+			}
+		} catch (e) {
+			pushMessage = { text: 'เกิดข้อผิดพลาดในการตั้งค่าการแจ้งเตือน', isError: true };
+		} finally {
+			pushLoading = false;
+			setTimeout(() => {
+				pushMessage = null;
+			}, 4000);
+		}
+	}
+
+	async function handleTestPush() {
+		triggerHaptic(12);
+		pushLoading = true;
+		try {
+			const res = await triggerTestPush();
+			if (res.success) {
+				pushMessage = { text: 'ส่งข้อความทดสอบสำเร็จแล้ว ตรวจสอบที่แถบแจ้งเตือนอุปกรณ์' };
+			} else {
+				pushMessage = { text: res.error || 'ส่งข้อความทดสอบไม่สำเร็จ', isError: true };
+			}
+		} catch (err) {
+			pushMessage = { text: 'ส่งข้อความทดสอบไม่สำเร็จ', isError: true };
+		} finally {
+			pushLoading = false;
+		}
+	}
+
 	// Backup & Restore
 	function handleExportJSON() {
 		triggerHaptic(15);
@@ -136,7 +215,7 @@
 			}
 		};
 		reader.readAsText(file);
-		target.value = ''; // reset
+		target.value = '';
 	}
 
 	function handleResetSample() {
@@ -152,28 +231,28 @@
 	}
 </script>
 
-<div class="flex flex-col space-y-6 pb-8 pt-2">
+<div class="flex flex-col space-y-5 pb-8 pt-2">
 	<!-- Page Title -->
 	<div>
-		<h2 class="text-base font-bold text-slate-900 dark:text-white">คำนวณ & ตั้งค่าระบบ</h2>
-		<p class="text-xs text-slate-500 dark:text-slate-400">
-			ตั้งค่าอัตราค่าจ้าง, ภาษีหัก ณ ที่จ่าย, และเครื่องมือจำลองรายได้ What-If
+		<h2 class="text-base font-bold text-zinc-900 dark:text-white">คำนวณ & ตั้งค่าระบบ</h2>
+		<p class="text-xs text-zinc-500 dark:text-zinc-400">
+			ตั้งค่าอัตราค่าจ้าง, ระบบป้องกันลืมออกงาน, กะตารางเวลา, และจำลองรายได้
 		</p>
 	</div>
 
 	<!-- SECTION 1: WHAT-IF WAGE SIMULATOR -->
 	<div
-		class="overflow-hidden rounded-3xl border border-slate-200/90 bg-white/90 p-5 shadow-xs backdrop-blur-xs dark:border-slate-800/90 dark:bg-slate-900/90"
+		class="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white p-5 shadow-xs backdrop-blur-xs dark:border-white/10 dark:bg-[#121215]"
 	>
-		<div class="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+		<div class="flex items-center gap-2 pb-3 border-b border-zinc-100 dark:border-white/5">
 			<div
 				class="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-950/80 dark:text-blue-400"
 			>
 				<Sliders size={18} />
 			</div>
 			<div>
-				<h3 class="text-xs font-bold text-slate-900 dark:text-white">เครื่องมือจำลองรายได้ (What-If Simulator)</h3>
-				<p class="text-[11px] text-slate-400">ลองปรับจำนวนชั่วโมงและวันทำงานเพื่อคำนวณผลตอบแทน</p>
+				<h3 class="text-xs font-bold text-zinc-900 dark:text-white">เครื่องมือจำลองรายได้ (What-If Simulator)</h3>
+				<p class="text-[11px] text-zinc-400">ลองปรับจำนวนชั่วโมงและวันทำงานเพื่อคำนวณผลตอบแทน</p>
 			</div>
 		</div>
 
@@ -182,8 +261,8 @@
 			<!-- Slider 1: Hours per day -->
 			<div>
 				<div class="flex items-center justify-between text-xs">
-					<label for="sim-hours-slider" class="font-semibold text-slate-700 dark:text-slate-300">ชั่วโมงทำงานต่อวัน</label>
-					<span class="font-mono text-sm font-bold text-blue-600 dark:text-blue-400">
+					<label for="sim-hours-slider" class="font-semibold text-zinc-700 dark:text-zinc-300">ชั่วโมงทำงานต่อวัน</label>
+					<span class="font-mono text-sm font-bold text-blue-600 dark:text-blue-400 tabular-nums">
 						{simHoursPerDay} ชม./วัน
 					</span>
 				</div>
@@ -194,9 +273,9 @@
 					max="16"
 					step="0.5"
 					bind:value={simHoursPerDay}
-					class="mt-2 h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600 dark:bg-slate-700"
+					class="mt-2 h-2 w-full cursor-pointer appearance-none rounded-lg bg-zinc-200 accent-blue-600 dark:bg-zinc-700"
 				/>
-				<div class="mt-1 flex justify-between text-[10px] text-slate-400">
+				<div class="mt-1 flex justify-between text-[10px] text-zinc-400">
 					<span>1 ชม.</span>
 					<span>4 ชม. (พาร์ทไทม์)</span>
 					<span>8 ชม. (ฟูลไทม์)</span>
@@ -207,10 +286,10 @@
 			<!-- Slider 2: Weekday days per week -->
 			<div>
 				<div class="flex items-center justify-between text-xs">
-					<label for="sim-weekdays-slider" class="font-semibold text-slate-700 dark:text-slate-300">
+					<label for="sim-weekdays-slider" class="font-semibold text-zinc-700 dark:text-zinc-300">
 						วันทำงานธรรมดา (จ.-ศ.)
 					</label>
-					<span class="font-mono text-sm font-bold text-blue-600 dark:text-blue-400">
+					<span class="font-mono text-sm font-bold text-blue-600 dark:text-blue-400 tabular-nums">
 						{simWeekdayDays} วัน/สัปดาห์
 					</span>
 				</div>
@@ -221,7 +300,7 @@
 					max="5"
 					step="1"
 					bind:value={simWeekdayDays}
-					class="mt-2 h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600 dark:bg-slate-700"
+					class="mt-2 h-2 w-full cursor-pointer appearance-none rounded-lg bg-zinc-200 accent-blue-600 dark:bg-zinc-700"
 				/>
 			</div>
 
@@ -231,7 +310,7 @@
 					<label for="sim-weekend-slider" class="font-semibold text-purple-700 dark:text-purple-300">
 						กะวันหยุด (ส.-อา. {workStore.config.weekendMultiplier}x)
 					</label>
-					<span class="font-mono text-sm font-bold text-purple-600 dark:text-purple-400">
+					<span class="font-mono text-sm font-bold text-purple-600 dark:text-purple-400 tabular-nums">
 						{simWeekendDays} วัน/สัปดาห์
 					</span>
 				</div>
@@ -249,26 +328,26 @@
 
 		<!-- Simulator Calculated Output Display -->
 		<div
-			class="mt-5 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-950/50 space-y-3"
+			class="mt-5 rounded-2xl border border-zinc-200/80 bg-zinc-50/80 p-4 dark:border-white/5 dark:bg-zinc-900/50 space-y-3"
 		>
-			<div class="text-xs font-bold text-slate-800 dark:text-slate-200">
+			<div class="text-xs font-bold text-zinc-800 dark:text-zinc-200">
 				ผลลัพธ์ประมาณการรายได้ (สุทธิหลังหักภาษี {workStore.config.taxDeductionPercent}%):
 			</div>
 
 			<div class="grid grid-cols-2 gap-2 text-xs">
-				<div class="rounded-xl bg-white p-2.5 dark:bg-slate-900 border border-slate-100 dark:border-slate-800">
-					<div class="text-[10px] text-slate-400">วันธรรมดา/วัน</div>
-					<div class="font-mono text-sm font-bold text-slate-800 dark:text-slate-200">
+				<div class="rounded-xl bg-white p-2.5 dark:bg-zinc-800/80 border border-zinc-100 dark:border-white/5">
+					<div class="text-[10px] text-zinc-400">วันธรรมดา/วัน</div>
+					<div class="font-mono text-sm font-bold text-zinc-800 dark:text-zinc-200 tabular-nums">
 						{formatCurrency(simResult.dailyWeekdayGross * (1 - workStore.config.taxDeductionPercent / 100), workStore.config.currency, 0)}
 					</div>
-					<div class="text-[9px] text-slate-400">
+					<div class="text-[9px] text-zinc-400">
 						(ก่อนหัก: {formatCurrency(simResult.dailyWeekdayGross, workStore.config.currency, 0)})
 					</div>
 				</div>
 
 				<div class="rounded-xl bg-purple-50/80 p-2.5 dark:bg-purple-950/40 border border-purple-100 dark:border-purple-900/60">
 					<div class="text-[10px] text-purple-600 dark:text-purple-400">วันหยุด ({workStore.config.weekendMultiplier}x)/วัน</div>
-					<div class="font-mono text-sm font-bold text-purple-700 dark:text-purple-300">
+					<div class="font-mono text-sm font-bold text-purple-700 dark:text-purple-300 tabular-nums">
 						{formatCurrency(simResult.dailyWeekendGross * (1 - workStore.config.taxDeductionPercent / 100), workStore.config.currency, 0)}
 					</div>
 					<div class="text-[9px] text-purple-500/70">
@@ -284,13 +363,13 @@
 				<div class="flex items-center justify-between">
 					<div>
 						<div class="text-[11px] font-medium text-emerald-100">ประมาณการรายได้สุทธิรายเดือน</div>
-						<div class="font-mono text-2xl font-black">
+						<div class="font-mono text-2xl font-black tabular-nums">
 							{formatCurrency(simResult.monthlyNet, workStore.config.currency, 0)}
 						</div>
 					</div>
 					<div class="text-right">
 						<div class="text-[10px] text-emerald-100">รายสัปดาห์</div>
-						<div class="font-mono text-sm font-bold">
+						<div class="font-mono text-sm font-bold tabular-nums">
 							{formatCurrency(simResult.weeklyNet, workStore.config.currency, 0)}
 						</div>
 					</div>
@@ -299,20 +378,20 @@
 		</div>
 	</div>
 
-	<!-- SECTION 2: CONFIGURATION FORM -->
+	<!-- SECTION 2: SAFEGUARD CONFIGURATION (PREVENT FORGOTTEN CLOCKOUT) -->
 	<div
-		class="overflow-hidden rounded-3xl border border-slate-200/90 bg-white/90 p-5 shadow-xs backdrop-blur-xs dark:border-slate-800/90 dark:bg-slate-900/90"
+		class="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white p-5 shadow-xs backdrop-blur-xs dark:border-white/10 dark:bg-[#121215]"
 	>
-		<div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+		<div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-white/5">
 			<div class="flex items-center gap-2">
 				<div
-					class="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-950/80 dark:text-indigo-400"
+					class="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-400"
 				>
-					<Settings size={18} />
+					<ShieldCheck size={18} />
 				</div>
 				<div>
-					<h3 class="text-xs font-bold text-slate-900 dark:text-white">ตั้งค่าค่าจ้าง & การคำนวณ</h3>
-					<p class="text-[11px] text-slate-400">บันทึกอัตโนมัติลงในเบราว์เซอร์</p>
+					<h3 class="text-xs font-bold text-zinc-900 dark:text-white">ระบบป้องกันการลืมลงเวลาออก (Safeguard)</h3>
+					<p class="text-[11px] text-zinc-400">แจ้งเตือนและช่วยตัดกะเมื่อบันทึกเวลาทำงานเกินเกณฑ์</p>
 				</div>
 			</div>
 
@@ -323,14 +402,229 @@
 			{/if}
 		</div>
 
+		<div class="mt-4 space-y-3.5 text-xs">
+			<div>
+				<div class="flex items-center justify-between font-semibold text-zinc-700 dark:text-zinc-300">
+					<span>ขีดจำกัดชั่วโมงทำงานต่อเนื่องสูงสุด</span>
+					<span class="font-mono font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+						{workStore.config.safeguardMaxHours} ชั่วโมง
+					</span>
+				</div>
+				<p class="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+					หากกะทำงานมีความยาวถึงเกณฑ์นี้ ระบบจะแสดงแบนเนอร์แจ้งเตือนพร้อม 3 ทางเลือกตัดเวลา (ตัดที่ขีดจำกัด, ระบุเวลาออกเอง, หรือทำงานอยู่จริง)
+				</p>
+
+				<!-- Presets -->
+				<div class="mt-2.5 flex flex-wrap gap-2">
+					{#each safeguardPresets as hours}
+						<button
+							type="button"
+							onclick={() => updateSafeguardMaxHours(hours)}
+							class="rounded-xl px-3 py-1.5 font-bold transition-all {workStore.config.safeguardMaxHours === hours
+								? 'bg-amber-500 text-white shadow-xs'
+								: 'border border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300'}"
+						>
+							{hours} ชม. {hours === 12 ? '(แนะนำ)' : ''}
+						</button>
+					{/each}
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- SECTION 3: TIMED MODE & SCHEDULE CONFIGURATION -->
+	<div
+		class="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white p-5 shadow-xs backdrop-blur-xs dark:border-white/10 dark:bg-[#121215]"
+	>
+		<div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-white/5">
+			<div class="flex items-center gap-2">
+				<div
+					class="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-950/80 dark:text-blue-400"
+				>
+					<Calendar size={18} />
+				</div>
+				<div>
+					<h3 class="text-xs font-bold text-zinc-900 dark:text-white">ตั้งค่ากะตารางเวลา (Timed Schedule Mode)</h3>
+					<p class="text-[11px] text-zinc-400">กำหนดช่วงเวลากะประจำวันสำหรับโหมด Dual Mode</p>
+				</div>
+			</div>
+		</div>
+
+		<div class="mt-4 space-y-4 text-xs">
+			<!-- Dual Mode Toggle -->
+			<div class="flex items-center justify-between rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-white/5 dark:bg-zinc-900/40">
+				<div>
+					<div class="font-bold text-zinc-900 dark:text-white">เปิดใช้งานโหมดกะตารางเวลาเป็นค่าเริ่มต้น</div>
+					<div class="text-[11px] text-zinc-500 dark:text-zinc-400">สลับการแสดงผลหน้าแรกเป็นแถบนับถอยหลังกะ</div>
+				</div>
+				<button
+					type="button"
+					onclick={() => updateTimedMode({ timedModeEnabled: !workStore.config.timedModeEnabled })}
+					class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-hidden {workStore.config.timedModeEnabled
+						? 'bg-blue-600'
+						: 'bg-zinc-300 dark:bg-zinc-700'}"
+					role="switch"
+					aria-checked={workStore.config.timedModeEnabled}
+					aria-label="เปิดปิดโหมดกะตารางเวลา"
+				>
+					<span
+						class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 {workStore.config.timedModeEnabled
+							? 'translate-x-5'
+							: 'translate-x-0'}"
+					></span>
+				</button>
+			</div>
+
+			<!-- Start & End Time Inputs -->
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label for="config-scheduled-start" class="block font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+						เวลาเริ่มกะ (Start Time)
+					</label>
+					<input
+						id="config-scheduled-start"
+						type="time"
+						value={workStore.config.scheduledStart}
+						onchange={(e) => updateTimedMode({ scheduledStart: e.currentTarget.value })}
+						class="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm font-bold text-zinc-800 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-100"
+					/>
+				</div>
+
+				<div>
+					<label for="config-scheduled-end" class="block font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+						เวลาเลิกกะ (End Time)
+					</label>
+					<input
+						id="config-scheduled-end"
+						type="time"
+						value={workStore.config.scheduledEnd}
+						onchange={(e) => updateTimedMode({ scheduledEnd: e.currentTarget.value })}
+						class="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm font-bold text-zinc-800 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-100"
+					/>
+				</div>
+			</div>
+
+			<!-- Auto Punch Toggle -->
+			<div class="flex items-center justify-between rounded-2xl border border-zinc-200/80 bg-zinc-50/70 p-3.5 dark:border-white/5 dark:bg-zinc-900/40">
+				<div>
+					<div class="font-bold text-zinc-900 dark:text-white">บันทึกเวลาอัตโนมัติ (Auto-Punch)</div>
+					<div class="text-[11px] text-zinc-500 dark:text-zinc-400">เริ่มและจบลำดับกะอัตโนมัติเมื่อถึงเวลาที่กำหนด</div>
+				</div>
+				<button
+					type="button"
+					onclick={() => updateTimedMode({ autoPunchEnabled: !workStore.config.autoPunchEnabled })}
+					class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-hidden {workStore.config.autoPunchEnabled
+						? 'bg-blue-600'
+						: 'bg-zinc-300 dark:bg-zinc-700'}"
+					role="switch"
+					aria-checked={workStore.config.autoPunchEnabled}
+					aria-label="เปิดปิดการบันทึกเวลาอัตโนมัติ"
+				>
+					<span
+						class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 {workStore.config.autoPunchEnabled
+							? 'translate-x-5'
+							: 'translate-x-0'}"
+					></span>
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- SECTION 4: PUSH NOTIFICATIONS -->
+	<div
+		class="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white p-5 shadow-xs backdrop-blur-xs dark:border-white/10 dark:bg-[#121215]"
+	>
+		<div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-white/5">
+			<div class="flex items-center gap-2">
+				<div
+					class="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-400"
+				>
+					<Bell size={18} />
+				</div>
+				<div>
+					<h3 class="text-xs font-bold text-zinc-900 dark:text-white">การแจ้งเตือนบนอุปกรณ์ (Web Push)</h3>
+					<p class="text-[11px] text-zinc-400">รับแจ้งเตือนเมื่อถึงเวลาเลิกกะ หรือเมื่อเกินขีดจำกัดความปลอดภัย</p>
+				</div>
+			</div>
+		</div>
+
+		<div class="mt-4 space-y-3.5 text-xs">
+			{#if pushMessage}
+				<div
+					class="rounded-xl p-3 text-xs {pushMessage.isError
+						? 'bg-rose-50 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+						: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'}"
+				>
+					{pushMessage.text}
+				</div>
+			{/if}
+
+			<div class="flex items-center justify-between">
+				<div>
+					<span class="font-bold text-zinc-800 dark:text-zinc-200">สิทธิ์รับการแจ้งเตือน</span>
+					<p class="text-[11px] text-zinc-500 dark:text-zinc-400">
+						{isPushSubscribed ? '● เปิดใช้งานเรียบร้อย' : '○ ยังไม่ได้ลงทะเบียน'}
+					</p>
+				</div>
+
+				<button
+					type="button"
+					onclick={handleTogglePush}
+					disabled={pushLoading}
+					class="rounded-xl px-4 py-2 font-bold transition-all active:scale-[0.98] {isPushSubscribed
+						? 'border border-zinc-300 bg-white text-zinc-700 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300'
+						: 'bg-blue-600 text-white shadow-xs hover:bg-blue-500'}"
+				>
+					{isPushSubscribed ? 'ปิดการแจ้งเตือน' : 'เปิดการแจ้งเตือน'}
+				</button>
+			</div>
+
+			<div class="pt-2 flex justify-end">
+				<button
+					type="button"
+					onclick={handleTestPush}
+					disabled={pushLoading}
+					class="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100 active:scale-[0.98] transition-all dark:border-white/10 dark:bg-zinc-800/60 dark:text-zinc-300"
+				>
+					<BellRing size={13} />
+					<span>ส่งข้อความทดสอบ</span>
+				</button>
+			</div>
+
+			<div
+				class="rounded-xl bg-zinc-50/70 p-3 text-[11px] leading-relaxed text-zinc-500 dark:bg-zinc-900/40 dark:text-zinc-400"
+			>
+				💡 สำหรับ iOS: ใช้งานได้เมื่อติดตั้งเว็บแอปนี้ผ่าน Safari ด้วยคำสั่ง "Add to Home Screen" (iOS 16.4 ขึ้นไป)
+			</div>
+		</div>
+	</div>
+
+	<!-- SECTION 5: WAGE & TAX CONFIGURATION -->
+	<div
+		class="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white p-5 shadow-xs backdrop-blur-xs dark:border-white/10 dark:bg-[#121215]"
+	>
+		<div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-white/5">
+			<div class="flex items-center gap-2">
+				<div
+					class="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-950/80 dark:text-indigo-400"
+				>
+					<Settings size={18} />
+				</div>
+				<div>
+					<h3 class="text-xs font-bold text-zinc-900 dark:text-white">ตั้งค่าค่าจ้าง & การคำนวณ</h3>
+					<p class="text-[11px] text-zinc-400">อัตราค่าจ้าง, ตัวคูณ, และภาษีหัก ณ ที่จ่าย</p>
+				</div>
+			</div>
+		</div>
+
 		<div class="mt-4 space-y-4 text-xs">
 			<!-- 1. Base Hourly Rate -->
 			<div>
-				<label for="config-hourly-rate" class="block font-semibold text-slate-700 dark:text-slate-300">
+				<label for="config-hourly-rate" class="block font-semibold text-zinc-700 dark:text-zinc-300">
 					อัตราค่าจ้างพื้นฐาน (บาท / ชั่วโมง)
 				</label>
 				<div class="relative mt-1">
-					<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 font-bold">
+					<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400 font-bold">
 						{workStore.config.currency}
 					</div>
 					<input
@@ -340,14 +634,14 @@
 						step="5"
 						value={workStore.config.hourlyRate}
 						onchange={(e) => updateHourlyRate(Number(e.currentTarget.value))}
-						class="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-8 pr-3 font-mono text-sm font-bold text-slate-800 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+						class="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-8 pr-3 font-mono text-sm font-bold text-zinc-800 tabular-nums transition-colors focus:border-blue-500 focus:bg-white focus:outline-hidden dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-100"
 					/>
 				</div>
 			</div>
 
 			<!-- 2. Weekend Rate Multiplier -->
 			<div>
-				<label for="config-weekend-mult" class="block font-semibold text-slate-700 dark:text-slate-300">
+				<label for="config-weekend-mult" class="block font-semibold text-zinc-700 dark:text-zinc-300">
 					ตัวคูณค่าจ้างวันหยุด เสาร์-อาทิตย์ (Weekend Multiplier)
 				</label>
 				<div class="mt-1.5 flex flex-wrap gap-1.5">
@@ -355,10 +649,10 @@
 						<button
 							type="button"
 							onclick={() => updateWeekendMultiplier(mult)}
-							class="rounded-xl px-3 py-1.5 text-xs font-bold transition-all {workStore.config
+							class="rounded-xl px-3 py-1.5 text-xs font-bold font-mono tabular-nums transition-all {workStore.config
 								.weekendMultiplier === mult
 								? 'bg-purple-600 text-white shadow-xs'
-								: 'border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'}"
+								: 'border border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300'}"
 						>
 							{mult}x ({formatCurrency(workStore.config.hourlyRate * mult, workStore.config.currency, 0)}/ชม.)
 						</button>
@@ -368,7 +662,7 @@
 
 			<!-- 3. Rounding Mode -->
 			<div>
-				<label for="config-rounding-mode" class="block font-semibold text-slate-700 dark:text-slate-300">
+				<label for="config-rounding-mode" class="block font-semibold text-zinc-700 dark:text-zinc-300">
 					โหมดการปัดเศษเวลา (Rounding Mode)
 				</label>
 				<div class="mt-1.5 space-y-1.5">
@@ -379,11 +673,11 @@
 							onclick={() => updateRoundingMode(opt.mode)}
 							class="flex w-full items-start justify-between rounded-xl border p-2.5 text-left transition-all {isSelected
 								? 'border-blue-500 bg-blue-50/70 text-blue-900 dark:border-blue-500 dark:bg-blue-950/40 dark:text-blue-200'
-								: 'border-slate-200 bg-slate-50/50 text-slate-700 hover:bg-slate-100/60 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-300'}"
+								: 'border-zinc-200 bg-zinc-50/50 text-zinc-700 hover:bg-zinc-100/60 dark:border-white/10 dark:bg-zinc-800/40 dark:text-zinc-300'}"
 						>
 							<div>
 								<div class="font-bold">{opt.label}</div>
-								<div class="text-[10px] text-slate-500 dark:text-slate-400">{opt.desc}</div>
+								<div class="text-[10px] text-zinc-500 dark:text-zinc-400">{opt.desc}</div>
 							</div>
 							{#if isSelected}
 								<Check size={16} class="text-blue-600 dark:text-blue-400 mt-0.5" />
@@ -395,7 +689,7 @@
 
 			<!-- 4. Tax / Deduction % -->
 			<div>
-				<label for="config-tax-percent" class="block font-semibold text-slate-700 dark:text-slate-300">
+				<label for="config-tax-percent" class="block font-semibold text-zinc-700 dark:text-zinc-300">
 					หักภาษี ณ ที่จ่าย / หักอื่นๆ (%)
 				</label>
 				<div class="mt-1.5 flex items-center gap-2">
@@ -408,20 +702,19 @@
 							step="0.5"
 							value={workStore.config.taxDeductionPercent}
 							onchange={(e) => updateTaxPercent(Number(e.currentTarget.value))}
-							class="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 px-3 font-mono text-sm font-bold text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+							class="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2 px-3 font-mono text-sm font-bold text-zinc-800 tabular-nums focus:border-blue-500 focus:bg-white focus:outline-hidden dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-100"
 						/>
-						<span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-400 font-bold">
+						<span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-zinc-400 font-bold">
 							%
 						</span>
 					</div>
 
-					<!-- Quick presets -->
 					<div class="flex gap-1">
 						{#each taxPresets as preset}
 							<button
 								type="button"
 								onclick={() => updateTaxPercent(preset)}
-								class="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs font-semibold hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800"
+								class="rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs font-semibold hover:bg-zinc-100 dark:border-white/10 dark:bg-zinc-800 font-mono tabular-nums"
 							>
 								{preset}%
 							</button>
@@ -432,11 +725,11 @@
 
 			<!-- 5. Monthly Goal -->
 			<div>
-				<label for="config-monthly-goal" class="block font-semibold text-slate-700 dark:text-slate-300">
+				<label for="config-monthly-goal" class="block font-semibold text-zinc-700 dark:text-zinc-300">
 					เป้าหมายรายได้ต่อเดือน (บาท)
 				</label>
 				<div class="relative mt-1">
-					<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 font-bold">
+					<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-zinc-400 font-bold">
 						{workStore.config.currency}
 					</div>
 					<input
@@ -446,30 +739,29 @@
 						step="1000"
 						value={workStore.config.monthlyIncomeGoal}
 						onchange={(e) => updateMonthlyGoal(Number(e.currentTarget.value))}
-						class="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-8 pr-3 font-mono text-sm font-bold text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+						class="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 pl-8 pr-3 font-mono text-sm font-bold text-zinc-800 tabular-nums focus:border-blue-500 focus:bg-white focus:outline-hidden dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-100"
 					/>
 				</div>
 			</div>
 		</div>
 	</div>
 
-	<!-- SECTION 3: BACKUP & DATA MANAGEMENT -->
+	<!-- SECTION 6: BACKUP & DATA MANAGEMENT -->
 	<div
-		class="overflow-hidden rounded-3xl border border-slate-200/90 bg-white/90 p-5 shadow-xs backdrop-blur-xs dark:border-slate-800/90 dark:bg-slate-900/90 space-y-4"
+		class="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white p-5 shadow-xs backdrop-blur-xs dark:border-white/10 dark:bg-[#121215] space-y-4"
 	>
-		<div class="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+		<div class="flex items-center gap-2 pb-3 border-b border-zinc-100 dark:border-white/5">
 			<div
-				class="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+				class="flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
 			>
 				<Database size={18} />
 			</div>
 			<div>
-				<h3 class="text-xs font-bold text-slate-900 dark:text-white">จัดการข้อมูล & สำรองไฟล์</h3>
-				<p class="text-[11px] text-slate-400">บันทึกหรือกู้คืนประวัติและข้อมูลการตั้งค่า</p>
+				<h3 class="text-xs font-bold text-zinc-900 dark:text-white">จัดการข้อมูล & สำรองไฟล์</h3>
+				<p class="text-[11px] text-zinc-400">บันทึกหรือกู้คืนประวัติและข้อมูลการตั้งค่า</p>
 			</div>
 		</div>
 
-		<!-- Feedback notification if any -->
 		{#if importFeedback}
 			<div
 				class="rounded-xl p-3 text-xs {importFeedback.success
@@ -485,14 +777,14 @@
 			<button
 				type="button"
 				onclick={handleExportJSON}
-				class="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white py-2.5 font-bold text-slate-700 shadow-2xs hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+				class="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white py-2.5 font-bold text-zinc-700 shadow-2xs hover:bg-zinc-50 active:scale-[0.98] transition-all dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-200"
 			>
 				<Download size={15} />
 				<span>สำรองข้อมูล JSON</span>
 			</button>
 
 			<label
-				class="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white py-2.5 font-bold text-slate-700 shadow-2xs hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+				class="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white py-2.5 font-bold text-zinc-700 shadow-2xs hover:bg-zinc-50 active:scale-[0.98] transition-all dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-200"
 			>
 				<Upload size={15} />
 				<span>นำเข้า JSON</span>
@@ -506,28 +798,26 @@
 		</div>
 
 		<!-- Reset to Sample Data & Clear Danger Zone -->
-		<div class="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
-			<!-- Reset to sample data -->
+		<div class="pt-2 border-t border-zinc-100 dark:border-white/5 space-y-2">
 			<button
 				type="button"
 				onclick={() => {
 					triggerHaptic(10);
 					showResetConfirm = true;
 				}}
-				class="flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+				class="flex w-full items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100 active:scale-[0.98] transition-all dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 			>
 				<RotateCcw size={14} />
 				<span>รีเซ็ตเป็นข้อมูลตัวอย่าง (10 กะ)</span>
 			</button>
 
-			<!-- Clear all data -->
 			<button
 				type="button"
 				onclick={() => {
 					triggerHaptic(15);
 					showClearConfirm = true;
 				}}
-				class="flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/50 py-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100/70 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-400"
+				class="flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/50 py-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100/70 active:scale-[0.98] transition-all dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-400"
 			>
 				<Trash2 size={14} />
 				<span>ล้างประวัติทั้งหมด (Clear All)</span>
@@ -541,32 +831,32 @@
 <!-- ============================================== -->
 {#if showResetConfirm}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
 		role="dialog"
 		aria-modal="true"
 	>
 		<div
-			class="relative w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900 text-xs"
+			class="relative w-full max-w-sm rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-white/10 dark:bg-[#121215] text-xs"
 		>
-			<div class="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-sm">
+			<div class="flex items-center gap-2 font-bold text-zinc-900 dark:text-white text-sm">
 				<RotateCcw size={18} class="text-blue-600" />
 				<span>ยืนยันรีเซ็ตข้อมูลตัวอย่าง?</span>
 			</div>
-			<p class="mt-2 text-slate-500 dark:text-slate-400">
+			<p class="mt-2 text-zinc-500 dark:text-zinc-400">
 				ระบบจะสร้างรายการกะงานตัวอย่าง 10 รายการ และคืนค่าการตั้งค่าเป็นค่าเริ่มต้น
 			</p>
 			<div class="mt-4 grid grid-cols-2 gap-2">
 				<button
 					type="button"
 					onclick={() => (showResetConfirm = false)}
-					class="rounded-xl border border-slate-200 bg-white py-2 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+					class="rounded-xl border border-zinc-200 bg-white py-2 font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 				>
 					ยกเลิก
 				</button>
 				<button
 					type="button"
 					onclick={handleResetSample}
-					class="rounded-xl bg-blue-600 py-2 font-bold text-white shadow-sm hover:bg-blue-700"
+					class="rounded-xl bg-blue-600 py-2 font-bold text-white shadow-xs hover:bg-blue-500 active:scale-[0.98] transition-all"
 				>
 					รีเซ็ตข้อมูล
 				</button>
@@ -580,32 +870,32 @@
 <!-- ============================================== -->
 {#if showClearConfirm}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
 		role="dialog"
 		aria-modal="true"
 	>
 		<div
-			class="relative w-full max-w-sm rounded-3xl border border-red-200 bg-white p-5 shadow-2xl dark:border-red-900/60 dark:bg-slate-900 text-xs"
+			class="relative w-full max-w-sm rounded-3xl border border-red-200 bg-white p-5 shadow-2xl dark:border-red-900/60 dark:bg-[#121215] text-xs"
 		>
 			<div class="flex items-center gap-2 font-bold text-rose-600 text-sm">
 				<AlertTriangle size={18} />
 				<span>ยืนยันการล้างข้อมูลทั้งหมด?</span>
 			</div>
-			<p class="mt-2 text-slate-600 dark:text-slate-400">
+			<p class="mt-2 text-zinc-600 dark:text-zinc-400">
 				รายการประวัติงานทั้งหมดจะถูกลบถาวร ไม่สามารถกู้คืนได้ แนะนำให้สำรองข้อมูล JSON ไว้ก่อน
 			</p>
 			<div class="mt-4 grid grid-cols-2 gap-2">
 				<button
 					type="button"
 					onclick={() => (showClearConfirm = false)}
-					class="rounded-xl border border-slate-200 bg-white py-2 font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+					class="rounded-xl border border-zinc-200 bg-white py-2 font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300"
 				>
 					ยกเลิก
 				</button>
 				<button
 					type="button"
 					onclick={handleClearAll}
-					class="rounded-xl bg-rose-600 py-2 font-bold text-white shadow-sm hover:bg-rose-700"
+					class="rounded-xl bg-rose-600 py-2 font-bold text-white shadow-xs hover:bg-rose-700 active:scale-[0.98] transition-all"
 				>
 					ล้างข้อมูลถาวร
 				</button>
