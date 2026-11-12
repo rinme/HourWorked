@@ -21,10 +21,13 @@
 		BellRing,
 		BellOff,
 		Sparkles,
-		Zap
+		Zap,
+		Cloud,
+		RefreshCw
 	} from 'lucide-svelte';
 	import { workStore } from '#lib/storage.svelte';
-	import { simulateWage, formatCurrency } from '#lib/calculator';
+	import { simulateWage, formatCurrency, formatThaiDate } from '#lib/calculator';
+	import AuthModal from './AuthModal.svelte';
 	import {
 		isPushNotificationSupported,
 		isStandalonePWA,
@@ -50,6 +53,27 @@
 	let isPushSubscribed = $state(false);
 	let pushLoading = $state(false);
 	let pushMessage = $state<{ text: string; isError?: boolean } | null>(null);
+
+	// Cloud auth & sync state
+	let showAuthModal = $state(false);
+	let isManualSyncing = $state(false);
+	let syncMessage = $state<string | null>(null);
+
+	async function handleManualSync() {
+		triggerHaptic(15);
+		isManualSyncing = true;
+		syncMessage = null;
+		const ok = await workStore.syncWithCloud();
+		isManualSyncing = false;
+		if (ok) {
+			syncMessage = 'ซิงค์ข้อมูลกับคลาวด์สมบูรณ์แล้ว!';
+			setTimeout(() => {
+				syncMessage = null;
+			}, 3000);
+		} else {
+			syncMessage = workStore.syncError || 'ไม่สามารถซิงค์ได้ กรุณาลองใหม่อีกครั้ง';
+		}
+	}
 
 	function triggerHaptic(duration = 10) {
 		if (typeof window !== 'undefined' && 'navigator' in window && 'vibrate' in navigator) {
@@ -238,6 +262,95 @@
 		<p class="text-xs text-zinc-500 dark:text-zinc-400">
 			ตั้งค่าอัตราค่าจ้าง, ระบบป้องกันลืมออกงาน, กะตารางเวลา, และจำลองรายได้
 		</p>
+	</div>
+
+	<!-- SECTION: CLOUD ACCOUNT & SYNC -->
+	<div
+		class="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white p-5 shadow-xs backdrop-blur-xs dark:border-white/10 dark:bg-[#121215]"
+	>
+		<div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-white/5">
+			<div class="flex items-center gap-2">
+				<div
+					class="flex h-8 w-8 items-center justify-center rounded-xl {workStore.user ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/80 dark:text-emerald-400' : 'bg-blue-100 text-blue-600 dark:bg-blue-950/80 dark:text-blue-400'}"
+				>
+					<Cloud size={18} />
+				</div>
+				<div>
+					<h3 class="text-xs font-bold text-zinc-900 dark:text-white">ระบบคลาวด์และการซิงค์ (Cloud Sync)</h3>
+					<p class="text-[11px] text-zinc-400">บันทึกข้อมูลกะทำงานบนคลาวด์และใช้งานได้ตรงกันทุกอุปกรณ์</p>
+				</div>
+			</div>
+
+			<!-- Status Indicator -->
+			<div
+				class="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border {workStore.user
+					? workStore.syncStatus === 'syncing'
+						? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
+						: 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+					: 'border-zinc-200 bg-zinc-100 text-zinc-600 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300'}"
+			>
+				{workStore.syncStatus === 'syncing' ? '↻ กำลังซิงค์' : workStore.user ? '● ซิงค์แล้ว' : '○ โหมดออฟไลน์ (Guest)'}
+			</div>
+		</div>
+
+		{#if workStore.user}
+			<!-- Logged In State -->
+			<div class="mt-4 space-y-3">
+				<div class="flex items-center justify-between rounded-2xl bg-zinc-50 p-3.5 dark:bg-zinc-900/60 border border-zinc-200/60 dark:border-white/5">
+					<div class="flex items-center gap-3">
+						<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-200 text-zinc-800 font-bold dark:bg-zinc-800 dark:text-zinc-200 text-sm">
+							{workStore.user.username.slice(0, 2).toUpperCase()}
+						</div>
+						<div>
+							<div class="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
+								<span>{workStore.user.username}</span>
+								<span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">เข้าสู่ระบบแล้ว</span>
+							</div>
+							<div class="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 font-mono tabular-nums">
+								ซิงค์ล่าสุด: {workStore.lastSyncedAt ? formatThaiDate(new Date(workStore.lastSyncedAt), { showTime: true }) : 'เมื่อสักครู่'}
+							</div>
+						</div>
+					</div>
+
+					<button
+						type="button"
+						onclick={() => (showAuthModal = true)}
+						class="text-xs font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-white/10 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all active:scale-95"
+					>
+						จัดการบัญชี
+					</button>
+				</div>
+
+				<!-- Sync Now CTA Button -->
+				<button
+					type="button"
+					onclick={handleManualSync}
+					disabled={workStore.syncStatus === 'syncing' || isManualSyncing}
+					class="w-full flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-bold text-white shadow-xs hover:bg-emerald-500 active:scale-[0.98] transition-all disabled:opacity-50"
+				>
+					<RefreshCw size={14} class={workStore.syncStatus === 'syncing' || isManualSyncing ? 'animate-spin' : ''} />
+					<span>{workStore.syncStatus === 'syncing' || isManualSyncing ? 'กำลังซิงค์ข้อมูลกับคลาวด์...' : '🔄 ซิงค์ข้อมูลกับคลาวด์เดี๋ยวนี้ (Sync Now)'}</span>
+				</button>
+				{#if syncMessage}
+					<p class="text-center text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">{syncMessage}</p>
+				{/if}
+			</div>
+		{:else}
+			<!-- Guest State: Prompt to Login/Register -->
+			<div class="mt-4 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/50 p-4 border border-blue-100 dark:from-blue-950/20 dark:to-indigo-950/20 dark:border-blue-900/30">
+				<p class="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+					ขณะนี้คุณใช้งานในโหมด <strong>ออฟไลน์ (Guest)</strong> ข้อมูลถูกเก็บไว้เฉพาะในเบราว์เซอร์เครื่องนี้ เข้าสู่ระบบหรือสร้างบัญชีฟรีเพื่อซิงค์ข้อมูลข้ามอุปกรณ์ (มือถือ, แท็บเล็ต, คอมพิวเตอร์) โดยอัตโนมัติ
+				</p>
+				<button
+					type="button"
+					onclick={() => (showAuthModal = true)}
+					class="mt-3.5 w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-blue-500 active:scale-[0.98] transition-all"
+				>
+					<Cloud size={15} />
+					<span>เข้าสู่ระบบ / สร้างบัญชีเพื่อบันทึกลง Cloud</span>
+				</button>
+			</div>
+		{/if}
 	</div>
 
 	<!-- SECTION 1: WHAT-IF WAGE SIMULATOR -->
@@ -903,3 +1016,6 @@
 		</div>
 	</div>
 {/if}
+
+<!-- Cloud Account & Sync Modal -->
+<AuthModal bind:isOpen={showAuthModal} />

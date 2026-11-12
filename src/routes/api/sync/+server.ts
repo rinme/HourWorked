@@ -4,6 +4,7 @@ import {
 	upsertUserConfig,
 	getUserWorkSessions,
 	upsertWorkSession,
+	deleteWorkSession,
 	type SessionRecord
 } from '$lib/server/db';
 
@@ -32,7 +33,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
 		const userId = locals.user.id;
 		const body = await request.json();
-		const { config, configUpdatedAt, sessions = [] } = body || {};
+		const { config, configUpdatedAt, sessions = [], deletedSessionIds = [] } = body || {};
+
+		// Handle deletions first
+		if (Array.isArray(deletedSessionIds) && deletedSessionIds.length > 0) {
+			for (const delId of deletedSessionIds) {
+				if (typeof delId === 'string' && delId.length > 0) {
+					await deleteWorkSession(userId, delId);
+				}
+			}
+		}
 
 		// 1. Sync User Config (Last-Write-Wins)
 		const serverConfigRecord = await getUserConfig(userId);

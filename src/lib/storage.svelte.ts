@@ -32,6 +32,7 @@ const STORAGE_KEYS = {
 	ACTIVE: 'hourworked_active_session_v1',
 	USER: 'hourworked_user_v1',
 	TOKEN: 'hourworked_token_v1',
+	DELETED: 'hourworked_deleted_sessions_v1',
 	LAST_SYNCED: 'hourworked_last_synced_v1'
 } as const;
 
@@ -164,7 +165,8 @@ export function createSampleSessions(referenceDate: Date = new Date()): WorkSess
 		}
 
 		sessions.push({
-			id: generateId(),
+			id: 'sample_' + (samples.indexOf(s) + 1),
+			isSample: true,
 			date: getLocalDateString(targetDate),
 			startTime: startTime.getTime(),
 			endTime: endTime.getTime(),
@@ -188,9 +190,11 @@ export class WorkStore {
 	// User Auth & Cloud Sync States
 	user = $state<User | null>(null);
 	token = $state<string | null>(null);
+	deletedSessionIds = $state<string[]>([]);
 	syncStatus = $state<SyncStatus>('guest');
 	lastSyncedAt = $state<number | null>(null);
 	syncError = $state<string | null>(null);
+	private autoSyncTimer: any = null;
 
 	constructor() {
 		this.init();
@@ -256,6 +260,15 @@ export class WorkStore {
 			if (storedLastSynced) {
 				this.lastSyncedAt = Number(storedLastSynced) || null;
 			}
+
+			const storedDeleted = localStorage.getItem(STORAGE_KEYS.DELETED);
+			if (storedDeleted) {
+				try {
+					this.deletedSessionIds = JSON.parse(storedDeleted) || [];
+				} catch {
+					this.deletedSessionIds = [];
+				}
+			}
 		} catch (err) {
 			console.error('Error loading data from localStorage, falling back to defaults', err);
 			this.sessions = createSampleSessions();
@@ -265,8 +278,33 @@ export class WorkStore {
 		}
 
 		// Asynchronously verify authentication status with server if online
-		if (typeof window !== 'undefined' && this.user) {
-			this.fetchUserStatus().catch(() => {});
+		if (typeof window !== 'undefined') {
+			if (this.user) {
+				this.fetchUserStatus().catch(() => {});
+				setTimeout(() => {
+					this.syncWithCloud().catch(() => {});
+				}, 400);
+			}
+
+			// Automatically re-sync from cloud when switching back to app / tab focus
+			window.addEventListener('focus', () => {
+				if (this.user && this.syncStatus !== 'syncing') {
+					this.syncWithCloud().catch(() => {});
+				}
+			});
+
+			document.addEventListener('visibilitychange', () => {
+				if (document.visibilityState === 'visible' && this.user && this.syncStatus !== 'syncing') {
+					this.syncWithCloud().catch(() => {});
+				}
+			});
+
+			// Periodic background sync every 45s while active
+			setInterval(() => {
+				if (typeof document !== 'undefined' && document.visibilityState === 'visible' && this.user && this.syncStatus !== 'syncing') {
+					this.syncWithCloud().catch(() => {});
+				}
+			}, 45000);
 		}
 	}
 
@@ -327,6 +365,24 @@ export class WorkStore {
 		}
 	}
 
+	private saveDeleted() {
+		if (typeof window === 'undefined') return;
+		try {
+			localStorage.setItem(STORAGE_KEYS.DELETED, JSON.stringify(this.deletedSessionIds));
+		} catch (e) {
+			console.error('Failed to save deleted sessions', e);
+		}
+	}
+
+	scheduleAutoSync(delayMs: number = 800) {
+		if (typeof window === 'undefined') return;
+		if (!this.user) return;
+		if (this.autoSyncTimer) clearTimeout(this.autoSyncTimer);
+		this.autoSyncTimer = setTimeout(() => {
+			this.syncWithCloud().catch(() => {});
+		}, delayMs);
+	}
+
 	// -------------------------------------------------------------
 	// Actions
 	// -------------------------------------------------------------
@@ -351,6 +407,7 @@ export class WorkStore {
 
 		this.activeSession = newSession;
 		this.saveActive();
+		this.scheduleAutoSync(500);
 		return newSession;
 	}
 
@@ -372,7 +429,8 @@ export class WorkStore {
 			...this.activeSession,
 			breaks: updatedBreaks,
 			endTime: now,
-			note: note !== undefined ? note.trim() : this.activeSession.note
+			note: note !== undefined ? note.trim() : this.activeSession.note,
+			updatedAt: now
 		};
 
 		this.sessions = [completedSession, ...this.sessions].sort(
@@ -382,6 +440,7 @@ export class WorkStore {
 
 		this.saveSessions();
 		this.saveActive();
+		this.scheduleAutoSync(100);
 
 		return completedSession;
 	}
@@ -413,9 +472,11 @@ export class WorkStore {
 
 		this.activeSession = {
 			...this.activeSession,
-			breaks: currentBreaks
+			breaks: currentBreaks,
+			updatedAt: now
 		};
 		this.saveActive();
+		this.scheduleAutoSync(300);
 
 		return openBreakIndex === -1; // returns true if now on break
 	}
@@ -424,17 +485,20 @@ export class WorkStore {
 	 * Adds a completed session manually (e.g. from modal entry).
 	 */
 	addManualEntry(entry: Omit<WorkSession, 'id'> | WorkSession): WorkSession {
+		const now = Date.now();
 		const newSession: WorkSession = {
 			id: 'id' in entry && entry.id ? entry.id : generateId(),
 			date: entry.date,
 			startTime: entry.startTime,
 			endTime: entry.endTime,
 			breaks: entry.breaks || [],
-			note: entry.note?.trim() || ''
+			note: entry.note?.trim() || '',
+			updatedAt: now
 		};
 
 		this.sessions = [newSession, ...this.sessions].sort((a, b) => b.startTime - a.startTime);
 		this.saveSessions();
+		this.scheduleAutoSync(100);
 		return newSession;
 	}
 
@@ -442,17 +506,20 @@ export class WorkStore {
 	 * Updates an existing session by ID (can be in history or active session).
 	 */
 	updateSession(id: string, updates: Partial<WorkSession>): boolean {
+		const now = Date.now();
 		if (this.activeSession && this.activeSession.id === id) {
-			this.activeSession = { ...this.activeSession, ...updates };
+			this.activeSession = { ...this.activeSession, ...updates, updatedAt: now };
 			this.saveActive();
+			this.scheduleAutoSync(100);
 			return true;
 		}
 
 		const index = this.sessions.findIndex((s) => s.id === id);
 		if (index !== -1) {
-			this.sessions[index] = { ...this.sessions[index], ...updates };
+			this.sessions[index] = { ...this.sessions[index], ...updates, updatedAt: now };
 			this.sessions = [...this.sessions].sort((a, b) => b.startTime - a.startTime);
 			this.saveSessions();
+			this.scheduleAutoSync(100);
 			return true;
 		}
 
@@ -466,13 +533,21 @@ export class WorkStore {
 		if (this.activeSession && this.activeSession.id === id) {
 			this.activeSession = null;
 			this.saveActive();
+			this.scheduleAutoSync(100);
 			return true;
 		}
 
 		const initialLen = this.sessions.length;
 		this.sessions = this.sessions.filter((s) => s.id !== id);
 		if (this.sessions.length !== initialLen) {
+			if (!id.startsWith('sample_')) {
+				if (!this.deletedSessionIds.includes(id)) {
+					this.deletedSessionIds.push(id);
+					this.saveDeleted();
+				}
+			}
 			this.saveSessions();
+			this.scheduleAutoSync(100);
 			return true;
 		}
 
@@ -485,6 +560,7 @@ export class WorkStore {
 	updateConfig(updates: Partial<UserConfig>) {
 		this.config = { ...this.config, ...updates };
 		this.saveConfig();
+		this.scheduleAutoSync(400);
 	}
 
 	// -------------------------------------------------------------
@@ -795,8 +871,14 @@ export class WorkStore {
 		this.syncError = null;
 
 		try {
+			// Filter out demo sample sessions so they never pollute cloud
+			const realSessions = this.sessions.filter(
+				(s) => !s.id.startsWith('sample_') && !s.isSample
+			);
+
 			const payload: SyncPayload = {
-				sessions: this.sessions,
+				sessions: realSessions,
+				deletedSessionIds: [...this.deletedSessionIds],
 				config: this.config,
 				lastSyncedAt: this.lastSyncedAt
 			};
@@ -821,18 +903,23 @@ export class WorkStore {
 
 			const data: SyncResponse = await res.json();
 			if (data.success) {
+				this.deletedSessionIds = [];
+				this.saveDeleted();
+
 				if (Array.isArray(data.sessions)) {
 					const sessionMap = new Map<string, WorkSession>();
 					for (const s of data.sessions) {
-						sessionMap.set(s.id, s);
+						if (!s.id.startsWith('sample_')) {
+							sessionMap.set(s.id, s);
+						}
 					}
-					for (const s of this.sessions) {
+					for (const s of realSessions) {
 						if (!sessionMap.has(s.id)) {
 							sessionMap.set(s.id, s);
 						}
 					}
 					this.sessions = Array.from(sessionMap.values()).sort(
-						(a, b) => b.startTime - a.startTime
+						(a, b) => (Number(b.startTime) || 0) - (Number(a.startTime) || 0)
 					);
 					this.saveSessions();
 				}

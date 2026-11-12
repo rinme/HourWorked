@@ -81,22 +81,23 @@
 			<button
 				type="button"
 				onclick={handleOpenAuth}
-				class="group flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold transition-all duration-150 active:scale-95 border {workStore.user
+				class="group flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all duration-150 active:scale-95 border {workStore.user
 					? workStore.syncStatus === 'syncing'
-						? 'border-blue-300/80 bg-blue-50 text-blue-700 dark:border-blue-800/80 dark:bg-blue-950/40 dark:text-blue-300'
-						: 'border-emerald-300/80 bg-emerald-50 text-emerald-700 dark:border-emerald-800/80 dark:bg-emerald-950/40 dark:text-emerald-300'
-					: 'border-zinc-200 bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70 dark:border-white/10 dark:bg-zinc-800/70 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
-				title={workStore.user ? `เชื่อมต่อ: ${workStore.user.username}` : 'คลิกเพื่อเข้าสู่ระบบ & Cloud Sync'}
+						? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
+						: 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+					: 'border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-900/40 ring-1 ring-blue-500/10'}"
+				title={workStore.user ? `บัญชีคลาวด์: ${workStore.user.username} (คลิกเพื่อจัดการ / ซิงค์)` : 'คลิกเพื่อเข้าสู่ระบบ & บันทึกลง Cloud'}
 			>
 				{#if workStore.syncStatus === 'syncing'}
-					<RefreshCw size={11} class="animate-spin text-blue-600 dark:text-blue-400" />
-					<span class="tabular-nums font-mono">↻ Syncing</span>
+					<RefreshCw size={12} class="animate-spin text-blue-600 dark:text-blue-400" />
+					<span class="tabular-nums font-mono">กำลังซิงค์...</span>
 				{:else if workStore.user}
+					<Cloud size={12} class="text-emerald-600 dark:text-emerald-400" />
+					<span class="max-w-[80px] truncate">{workStore.user.username}</span>
 					<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-					<span class="tabular-nums">● Synced</span>
 				{:else}
-					<span class="h-1.5 w-1.5 rounded-full border border-zinc-400 dark:border-zinc-500"></span>
-					<span>○ Guest</span>
+					<Cloud size={12} class="text-blue-600 dark:text-blue-400" />
+					<span>ซิงค์คลาวด์</span>
 				{/if}
 			</button>
 

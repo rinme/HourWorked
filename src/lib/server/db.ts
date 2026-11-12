@@ -318,6 +318,17 @@ export async function upsertWorkSession(
 	}
 }
 
+export async function deleteWorkSession(userId: string, sessionId: string): Promise<void> {
+	if (pool) {
+		await pool.query('DELETE FROM work_sessions WHERE user_id = $1 AND id = $2', [userId, sessionId]);
+	} else {
+		const userMap = memSessions.get(userId);
+		if (userMap) {
+			userMap.delete(sessionId);
+		}
+	}
+}
+
 // -------------------------------------------------------------
 // Push Subscriptions Operations
 // -------------------------------------------------------------

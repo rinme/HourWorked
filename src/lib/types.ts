@@ -14,6 +14,7 @@ export interface WorkSession {
 	note?: string;
 	safeguardSnoozedUntil?: number | null; // Unix timestamp in ms until when safeguard alert is suppressed
 	isScheduledShift?: boolean; // Whether this session was clocked via scheduled timed shift mode
+	isSample?: boolean; // Demo sample session for guest view
 	updatedAt?: number;
 }
 
@@ -99,6 +100,7 @@ export interface AuthResponse {
 
 export interface SyncPayload {
 	sessions: WorkSession[];
+	deletedSessionIds?: string[];
 	config: UserConfig;
 	configUpdatedAt?: number;
 	lastSyncedAt?: number | null;
