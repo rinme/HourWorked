@@ -34,7 +34,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		const token = await createSessionToken(userPayload);
 		setSessionCookie(cookies, token);
 
-		return json({ user: userPayload, token });
+		return json({ success: true, user: userPayload, token });
 	} catch (err: any) {
 		console.error('Error in /api/auth/login:', err);
 		return json({ error: 'Internal server error' }, { status: 500 });

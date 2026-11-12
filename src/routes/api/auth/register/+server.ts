@@ -25,7 +25,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		const existingUser = await getUserByUsername(cleanUsername);
 		if (existingUser) {
 			return json(
-				{ error: 'Username is already taken' },
+				{ error: 'ชื่อผู้ใช้นี้มีผู้ใช้งานแล้ว กรุณาสลับไปที่แท็บเข้าสู่ระบบ หรือใช้ชื่ออื่น' },
 				{ status: 409 }
 			);
 		}
@@ -44,7 +44,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		const token = await createSessionToken(userPayload);
 		setSessionCookie(cookies, token);
 
-		return json({ user: userPayload, token }, { status: 201 });
+		return json({ success: true, user: userPayload, token }, { status: 201 });
 	} catch (err: any) {
 		console.error('Error in /api/auth/register:', err);
 		return json({ error: 'Internal server error' }, { status: 500 });

@@ -44,7 +44,8 @@ async function run() {
 
 	// 2. Web Crypto JWT Sessions
 	console.log('\n--- 2. Web Crypto Session Tokens ---');
-	const mockUser = { id: 'u-' + Math.random().toString(36).slice(2), username: 'testuser' };
+	const randomSuffix = Math.random().toString(36).slice(2, 8);
+	const mockUser = { id: 'u-' + randomSuffix, username: 'testuser_' + randomSuffix };
 	const token = await createSessionToken(mockUser);
 	assert(typeof token === 'string' && token.split('.').length === 3, 'JWT has 3 parts');
 
@@ -83,8 +84,9 @@ async function run() {
 	assert(fetchedConfig?.updatedAt === now, 'Config updatedAt matches');
 
 	// Work session upsert & fetch
+	const sessionId = 's-' + randomSuffix;
 	const session1 = {
-		id: 's-1',
+		id: sessionId,
 		date: '2026-11-12',
 		startTime: now - 3600000,
 		endTime: now,
@@ -96,7 +98,7 @@ async function run() {
 
 	const sessions = await getUserWorkSessions(mockUser.id);
 	assert(sessions.length === 1, '1 work session in database');
-	assert(sessions[0].id === 's-1', 'Session ID matches');
+	assert(sessions[0].id === sessionId, 'Session ID matches');
 	assert(sessions[0].note === 'Test shift', 'Session note matches');
 
 	// Push subscription

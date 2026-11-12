@@ -175,7 +175,21 @@
 					class="mt-4 flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300"
 				>
 					<AlertCircle size={16} class="shrink-0 mt-0.5" />
-					<div class="flex-1">{errorMessage}</div>
+					<div class="flex-1">
+						<div>{errorMessage}</div>
+						{#if mode === 'register' && errorMessage.includes('มีผู้ใช้งานแล้ว')}
+							<button
+								type="button"
+								onclick={() => {
+									mode = 'login';
+									errorMessage = null;
+								}}
+								class="mt-1.5 font-semibold underline hover:text-rose-800 dark:hover:text-rose-200 block"
+							>
+								สลับไปที่แท็บ "เข้าสู่ระบบ" ทันที →
+							</button>
+						{/if}
+					</div>
 				</div>
 			{/if}
 

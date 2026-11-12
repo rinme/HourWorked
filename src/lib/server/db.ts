@@ -278,7 +278,8 @@ export async function upsertWorkSession(
 			`INSERT INTO work_sessions (id, user_id, date, start_time, end_time, breaks, note, updated_at, deleted_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (id) DO UPDATE
-       SET date = EXCLUDED.date,
+       SET user_id = EXCLUDED.user_id,
+           date = EXCLUDED.date,
            start_time = EXCLUDED.start_time,
            end_time = EXCLUDED.end_time,
            breaks = EXCLUDED.breaks,

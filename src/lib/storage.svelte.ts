@@ -31,6 +31,7 @@ const STORAGE_KEYS = {
 	CONFIG: 'hourworked_config_v1',
 	ACTIVE: 'hourworked_active_session_v1',
 	USER: 'hourworked_user_v1',
+	TOKEN: 'hourworked_token_v1',
 	LAST_SYNCED: 'hourworked_last_synced_v1'
 } as const;
 
@@ -186,6 +187,7 @@ export class WorkStore {
 
 	// User Auth & Cloud Sync States
 	user = $state<User | null>(null);
+	token = $state<string | null>(null);
 	syncStatus = $state<SyncStatus>('guest');
 	lastSyncedAt = $state<number | null>(null);
 	syncError = $state<string | null>(null);
@@ -233,6 +235,10 @@ export class WorkStore {
 
 			// 4. Load cached user & sync metadata
 			const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+			const storedToken = localStorage.getItem(STORAGE_KEYS.TOKEN);
+			if (storedToken) {
+				this.token = storedToken;
+			}
 			if (storedUser) {
 				try {
 					this.user = JSON.parse(storedUser);
@@ -305,6 +311,19 @@ export class WorkStore {
 			}
 		} catch (e) {
 			console.error('Failed to save user state', e);
+		}
+	}
+
+	private saveToken() {
+		if (typeof window === 'undefined') return;
+		try {
+			if (this.token) {
+				localStorage.setItem(STORAGE_KEYS.TOKEN, this.token);
+			} else {
+				localStorage.removeItem(STORAGE_KEYS.TOKEN);
+			}
+		} catch (e) {
+			console.error('Failed to save token', e);
 		}
 	}
 
@@ -648,9 +667,13 @@ export class WorkStore {
 	async fetchUserStatus(): Promise<User | null> {
 		if (typeof window === 'undefined') return null;
 		try {
-			const res = await fetch('/api/auth/me');
+			const headers: Record<string, string> = {};
+			if (this.token) {
+				headers['Authorization'] = `Bearer ${this.token}`;
+			}
+			const res = await fetch('/api/auth/me', { headers });
 			if (res.ok) {
-				const data = await res.json();
+				const data = await res.json().catch(() => ({}));
 				if (data.user) {
 					this.user = data.user;
 					this.syncStatus = 'idle';
@@ -658,9 +681,13 @@ export class WorkStore {
 					return data.user;
 				}
 			}
-			this.user = null;
-			this.syncStatus = 'guest';
-			this.saveUser();
+			if (res.status === 401) {
+				this.user = null;
+				this.token = null;
+				this.saveToken();
+				this.syncStatus = 'guest';
+				this.saveUser();
+			}
 			return null;
 		} catch (err) {
 			console.warn('Failed to fetch auth status', err);
@@ -679,11 +706,15 @@ export class WorkStore {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username, password })
 			});
-			const data = await res.json();
-			if (!res.ok || !data.success) {
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok || (!data.success && !data.user)) {
 				return { success: false, error: data.error || 'การลงทะเบียนไม่สำเร็จ' };
 			}
 			this.user = data.user;
+			if (data.token) {
+				this.token = data.token;
+				this.saveToken();
+			}
 			this.syncStatus = 'idle';
 			this.saveUser();
 			await this.syncWithCloud();
@@ -707,11 +738,15 @@ export class WorkStore {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username, password })
 			});
-			const data = await res.json();
-			if (!res.ok || !data.success) {
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok || (!data.success && !data.user)) {
 				return { success: false, error: data.error || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' };
 			}
 			this.user = data.user;
+			if (data.token) {
+				this.token = data.token;
+				this.saveToken();
+			}
 			this.syncStatus = 'idle';
 			this.saveUser();
 			await this.syncWithCloud();
@@ -730,11 +765,17 @@ export class WorkStore {
 	async logout(): Promise<void> {
 		if (typeof window === 'undefined') return;
 		try {
-			await fetch('/api/auth/logout', { method: 'POST' });
+			const headers: Record<string, string> = {};
+			if (this.token) {
+				headers['Authorization'] = `Bearer ${this.token}`;
+			}
+			await fetch('/api/auth/logout', { method: 'POST', headers });
 		} catch (e) {
 			console.warn('Logout fetch failed:', e);
 		}
 		this.user = null;
+		this.token = null;
+		this.saveToken();
 		this.syncStatus = 'guest';
 		this.syncError = null;
 		this.saveUser();
@@ -760,9 +801,16 @@ export class WorkStore {
 				lastSyncedAt: this.lastSyncedAt
 			};
 
+			const headers: Record<string, string> = {
+				'Content-Type': 'application/json'
+			};
+			if (this.token) {
+				headers['Authorization'] = `Bearer ${this.token}`;
+			}
+
 			const res = await fetch('/api/sync', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers,
 				body: JSON.stringify(payload)
 			});
 
