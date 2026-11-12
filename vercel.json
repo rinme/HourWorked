@@ -6,7 +6,7 @@
       "has": [
         {
           "type": "host",
-          "value": ".*\\.vercel\\.app"
+          "value": "hourworked\\.vercel\\.app"
         }
       ],
       "destination": "https://hours.rinme.me/:path*",
